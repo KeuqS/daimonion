@@ -40,11 +40,6 @@ from tools import support_ledger  # noqa: E402
 PRESETS = answers.PRESETS
 """The ready-made answer files `explain_preset` reads (same directory the CLI renders from)."""
 
-#: Support-matrix rows worth flagging when an answer pair looks unsupported
-#: (the one tiered-section list, shared with tools/suggest.py through
-#: tools/support_ledger.py: the substring rule lives beside the scan).
-SUPPORT_SECTIONS = support_ledger.TIERED_SECTIONS
-
 
 class ExplainError(Exception):
     """The explanation cannot be given as asked (unknown preset, question, or value)."""

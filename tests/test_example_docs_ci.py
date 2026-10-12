@@ -894,7 +894,7 @@ def test_readme_hides_type_check_below_recommended_strictness(tmp_path: Path):
     assert "task type-check" in table, "recommended strictness keeps the type-check row"
 
 
-def test_derived_toolchain_flags_match_the_answers_they_rename(tmp_path: Path):
+def test_derived_toolchain_flags_match_the_answers_they_rename():
     """The _internal.yml shorthands resolve exactly like the literals they
     replace (the byte-identical-render precondition for the R1 renames)."""
     from copier._main import Worker
@@ -922,13 +922,13 @@ def test_derived_toolchain_flags_match_the_answers_they_rename(tmp_path: Path):
         ]
         for answers, expected in cases:
             worker.data = {**BASE, "project_type": "cli", **answers}
-            worker._ask()  # noqa: SLF001  WHYNOT: copier exposes no other way to run the questionnaire pass.
-            context = worker._render_context()  # noqa: SLF001  WHYNOT: same oracle as tests/test_example_layers.py.
+            worker._ask()  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            context = worker._render_context()  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
             for flag, value in expected.items():
                 assert context.get(flag) is value, f"{answers}: {flag} resolved to {context.get(flag)!r}"
             assert context.get("strictness_minimal") is False, "default answers ride recommended strictness"
 
         worker.data = {**BASE, "project_type": "cli", "use_recommended_quality": False, "strictness": "none"}
-        worker._ask()  # noqa: SLF001  WHYNOT: same oracle as above.
-        context = worker._render_context()  # noqa: SLF001  WHYNOT: same oracle as above.
+        worker._ask()  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        context = worker._render_context()  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         assert context.get("strictness_minimal") is True

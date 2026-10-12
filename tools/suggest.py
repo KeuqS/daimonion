@@ -58,10 +58,6 @@ from tools.render_inputs import read_yaml_mapping  # noqa: E402
 PRESETS = answers.PRESETS
 """The ready-made answer files `suggest_presets` ranks (same directory the CLI renders from)."""
 
-#: Support-matrix sections worth flagging when an answer pair names a
-#: non-supported combination (the one tiered-section list, shared with
-#: tools/explain.py through tools/support_ledger.py).
-SUPPORT_SECTIONS = support_ledger.TIERED_SECTIONS
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 """Word tokens of a requirement string: lowercased alphanumerics."""
