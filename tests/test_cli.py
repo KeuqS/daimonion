@@ -321,6 +321,39 @@ def test_main_dispatches_the_suggest_subcommand(monkeypatch: pytest.MonkeyPatch)
     assert seen == {"argv": ["--validate", "answers.yml", "--json"]}
 
 
+def test_main_dispatches_the_scaffold_subcommand(monkeypatch: pytest.MonkeyPatch):
+    """`main` routes `scaffold` to tools/scaffold.py with the subcommand and args."""
+    from tools import scaffold  # noqa: PLC0415
+
+    seen: dict[str, Any] = {}
+
+    def fake_scaffold(argv: list[str] | None) -> int:
+        seen["argv"] = argv
+        return cli.OK
+
+    monkeypatch.setattr(scaffold, "main", fake_scaffold)
+
+    assert cli.main(["scaffold", "check"]) == cli.OK
+    assert seen == {"argv": ["check"]}
+
+    assert cli.main(["scaffold", "question", "my_flag", "--dry-run"]) == cli.OK
+    assert seen == {
+        "argv": [
+            "question",
+            "my_flag",
+            "--type",
+            "bool",
+            "--when",
+            "true",
+            "--default",
+            "true",
+            "--file",
+            "questions/_common_c.yml",
+            "--dry-run",
+        ]
+    }
+
+
 def test_new_list_presets_prints_every_preset_and_skips_detect(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):

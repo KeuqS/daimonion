@@ -141,12 +141,12 @@ leave behind — after a deliberate tier change.
 <!-- BEGIN GENERATED: tier-ledger (tools/gen_docs.py --write) -->
 | Ledger row | Selector | Tests | Budget | Measured |
 |---|---|---|---|---|
-| `test-fast` | `-m "not heavy and not slow and not meta and not network"` | 1159 | 30s (measured 18.6s) | 2026-09-20 |
+| `test-fast` | `-m "not heavy and not slow and not meta and not network"` | 1167 | 30s (measured 18.6s) | 2026-09-20 |
 | `test-slow` | `-m "slow"` | 7 | measured 89.6s | 2026-09-17 |
 | `test-heavy` | `-m "heavy"` | 50 | measured 25.7s | 2026-09-17 |
 | `test-meta` | `-m "meta"` | 10 | measured 6.6s | 2026-09-17 |
-| `test` | `—` | 1226 | measured 178.6s | 2026-09-17 |
-| `test-randomly` | `-m "not heavy and not slow and not meta and not network"` | 1159 | measured 22.3s | 2026-09-17 |
+| `test` | `—` | 1234 | measured 178.6s | 2026-09-17 |
+| `test-randomly` | `-m "not heavy and not slow and not meta and not network"` | 1167 | measured 22.3s | 2026-09-17 |
 | `witness-fast` | `-m "fast"` | 278 | measured 16.9s | 2026-09-18 |
 <!-- END GENERATED: tier-ledger -->
 

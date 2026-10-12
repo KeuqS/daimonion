@@ -96,6 +96,7 @@ LAYERS: dict[str, tuple[str, frozenset[str]]] = {
                 "predicates",
                 "question_graph",
                 "render_delta",
+                "scaffold",
                 "suggest",
                 "update_rehearsal",
                 "verify",

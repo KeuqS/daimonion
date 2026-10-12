@@ -4,7 +4,7 @@
     "test-fast": {
       "task": "test-fast",
       "expression": "not heavy and not slow and not meta and not network",
-      "collected": 1159,
+      "collected": 1167,
       "files": {
         "tests/test_adopt.py": 38,
         "tests/test_adopt_stateful.py": 1,
@@ -13,7 +13,7 @@
         "tests/test_batch.py": 19,
         "tests/test_bot_layer.py": 47,
         "tests/test_check_upstream.py": 5,
-        "tests/test_cli.py": 24,
+        "tests/test_cli.py": 25,
         "tests/test_contract_manifest.py": 8,
         "tests/test_copier_structure.py": 17,
         "tests/test_detect.py": 22,
@@ -52,6 +52,7 @@
         "tests/test_render_convention.py": 2,
         "tests/test_render_delta.py": 9,
         "tests/test_render_invariants.py": 41,
+        "tests/test_scaffold.py": 7,
         "tests/test_structured_answers.py": 11,
         "tests/test_suggest.py": 15,
         "tests/test_support_matrix.py": 7,
@@ -63,7 +64,7 @@
         "tests/test_witness_matrix.py": 278,
         "tests/test_workflow_security.py": 14
       },
-      "ids_sha256": "d7c7761cf93512d6f71e78b87209ad84f4c4542e9456b5688059816f21f425ea",
+      "ids_sha256": "49014decb5da4db399f7f2bdd74871caaceafbe5de9e0c160dc8b2b9c6b20b78",
       "wall_seconds": 18.6,
       "measured": "2026-09-20",
       "budget_seconds": 30,
@@ -126,7 +127,7 @@
     "test": {
       "task": "test",
       "expression": "",
-      "collected": 1226,
+      "collected": 1234,
       "files": {
         "tests/test_adopt.py": 38,
         "tests/test_adopt_stateful.py": 1,
@@ -135,7 +136,7 @@
         "tests/test_batch.py": 19,
         "tests/test_bot_layer.py": 51,
         "tests/test_check_upstream.py": 5,
-        "tests/test_cli.py": 24,
+        "tests/test_cli.py": 25,
         "tests/test_contract_manifest.py": 8,
         "tests/test_copier_structure.py": 17,
         "tests/test_detect.py": 22,
@@ -176,6 +177,7 @@
         "tests/test_render_convention.py": 2,
         "tests/test_render_delta.py": 10,
         "tests/test_render_invariants.py": 41,
+        "tests/test_scaffold.py": 7,
         "tests/test_structured_answers.py": 11,
         "tests/test_suggest.py": 15,
         "tests/test_support_matrix.py": 7,
@@ -187,7 +189,7 @@
         "tests/test_witness_matrix.py": 287,
         "tests/test_workflow_security.py": 14
       },
-      "ids_sha256": "784a380df6f5affb3cc990d2fbf427fa17f6bba5c4d2283cd7df69db89e1611d",
+      "ids_sha256": "bb9707156c8201927809ef3f56ff0b31875833b057827b66f38e3e790e3b2e97",
       "wall_seconds": 178.6,
       "measured": "2026-09-17",
       "command": "uv run --no-sync pytest -q --cov --cov-report term",
@@ -196,7 +198,7 @@
     "test-randomly": {
       "task": "test-randomly",
       "expression": "not heavy and not slow and not meta and not network",
-      "collected": 1159,
+      "collected": 1167,
       "files": {
         "tests/test_adopt.py": 38,
         "tests/test_adopt_stateful.py": 1,
@@ -205,7 +207,7 @@
         "tests/test_batch.py": 19,
         "tests/test_bot_layer.py": 47,
         "tests/test_check_upstream.py": 5,
-        "tests/test_cli.py": 24,
+        "tests/test_cli.py": 25,
         "tests/test_contract_manifest.py": 8,
         "tests/test_copier_structure.py": 17,
         "tests/test_detect.py": 22,
@@ -244,6 +246,7 @@
         "tests/test_render_convention.py": 2,
         "tests/test_render_delta.py": 9,
         "tests/test_render_invariants.py": 41,
+        "tests/test_scaffold.py": 7,
         "tests/test_structured_answers.py": 11,
         "tests/test_suggest.py": 15,
         "tests/test_support_matrix.py": 7,
@@ -255,7 +258,7 @@
         "tests/test_witness_matrix.py": 278,
         "tests/test_workflow_security.py": 14
       },
-      "ids_sha256": "d7c7761cf93512d6f71e78b87209ad84f4c4542e9456b5688059816f21f425ea",
+      "ids_sha256": "49014decb5da4db399f7f2bdd74871caaceafbe5de9e0c160dc8b2b9c6b20b78",
       "wall_seconds": 22.3,
       "measured": "2026-09-17",
       "command": "uv run --no-sync pytest -q -p randomly -m \"not heavy and not slow and not meta and not network\"",

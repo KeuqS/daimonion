@@ -298,6 +298,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     _add_verify_command(subcommands)
     _add_explain_command(subcommands)
     _add_suggest_command(subcommands)
+    _add_scaffold_command(subcommands)
     return parser.parse_args(argv)
 
 
@@ -346,6 +347,36 @@ def _add_suggest_command(subcommands: Any) -> None:
         help="validate an answers YAML file instead of suggesting (exit 2 when rejected)",
     )
     suggest_command.add_argument("--json", action="store_true", help="print the machine-readable payload")
+
+
+def _add_scaffold_command(subcommands: Any) -> None:
+    """Register the `scaffold` subcommand: guided question/layer/preset generation."""
+    scaffold_command = subcommands.add_parser(
+        "scaffold", help="scaffold and validate additions to questionnaire, layers, and presets"
+    )
+    scaffold_sub = scaffold_command.add_subparsers(dest="scaffold_subcommand", required=True)
+
+    q = scaffold_sub.add_parser("question", help="scaffold a new question block")
+    q.add_argument("name", help="question variable name")
+    q.add_argument("--type", default="bool", choices=["bool", "str", "int"], help="type of question")
+    q.add_argument("--when", default="true", help="when condition (Jinja expression)")
+    q.add_argument("--default", default="true", help="default value (true, false, or literal)")
+    q.add_argument("--help-text", default="", help="help/prompt text for questionnaire")
+    q.add_argument("--file", default="questions/_common_c.yml", help="target file under questions/")
+    q.add_argument("--dry-run", action="store_true", help="print without writing")
+
+    layer = scaffold_sub.add_parser("layer", help="scaffold a new opt-in layer (include_<name>)")
+    layer.add_argument("name", help="layer identifier (e.g. grpc, kafka)")
+    layer.add_argument("--description", default="", help="short layer description")
+    layer.add_argument("--dry-run", action="store_true", help="print without writing")
+
+    preset = scaffold_sub.add_parser("preset", help="scaffold a new answers preset under presets/")
+    preset.add_argument("name", help="preset name (e.g. grpc-service)")
+    preset.add_argument("--description", default="", help="description header")
+    preset.add_argument("--base", default="library", help="base project_type")
+    preset.add_argument("--dry-run", action="store_true", help="print without writing")
+
+    scaffold_sub.add_parser("check", help="verify satisfiability and model consistency")
 
 
 # --- installed (non-checkout) operation: delegate to the cached clone --------
@@ -516,10 +547,49 @@ def _dispatch_suggest(args: argparse.Namespace) -> int:
     return suggest.main(_suggest_argv(args))
 
 
+def _dispatch_scaffold(args: argparse.Namespace) -> int:
+    """Run the `scaffold` subcommand through `tools/scaffold.py`."""
+    from tools import scaffold  # noqa: PLC0415
+
+    argv: list[str] = [args.scaffold_subcommand]
+    if args.scaffold_subcommand == "question":
+        argv.extend(
+            [
+                args.name,
+                "--type",
+                args.type,
+                "--when",
+                args.when,
+                "--default",
+                args.default,
+                "--file",
+                args.file,
+            ]
+        )
+        if args.help_text:
+            argv.extend(["--help-text", args.help_text])
+        if args.dry_run:
+            argv.append("--dry-run")
+    elif args.scaffold_subcommand == "layer":
+        argv.append(args.name)
+        if args.description:
+            argv.extend(["--description", args.description])
+        if args.dry_run:
+            argv.append("--dry-run")
+    elif args.scaffold_subcommand == "preset":
+        argv.extend([args.name, "--base", args.base])
+        if args.description:
+            argv.extend(["--description", args.description])
+        if args.dry_run:
+            argv.append("--dry-run")
+    return scaffold.main(argv)
+
+
 _DISPATCH: dict[str, Callable[[argparse.Namespace], int]] = {
     "verify": _dispatch_verify,
     "explain": _dispatch_explain,
     "suggest": _dispatch_suggest,
+    "scaffold": _dispatch_scaffold,
 }
 """One thin shell per forwarded subcommand, each owning its argv translation."""
 

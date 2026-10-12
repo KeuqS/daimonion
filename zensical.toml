@@ -46,6 +46,7 @@ nav = [
       { "Inspect a Target Before Adopting" = "how-to/detect.md" },
       { "Explain a Preset or an Answer" = "how-to/explain.md" },
       { "Propose a Configuration from Requirements" = "how-to/suggest.md" },
+      { "Scaffold and Extend" = "how-to/scaffold.md" },
       { "Adopt Into an Existing Project" = "how-to/adopt.md" },
       { "Code Coverage" = "how-to/coverage.md" },
       { "Check Docs Style" = "how-to/check-docs-style.md" },
