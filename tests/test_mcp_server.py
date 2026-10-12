@@ -48,6 +48,7 @@ BASE_ANSWERS = {**answers.BASE, "package_name": "mcp_example"}
 TOOL_NAMES = {
     "adopt_project",
     "check_ethics",
+    "explain_choice",
     "inspect_project",
     "lint_render",
     "list_batch_requests",
@@ -60,6 +61,8 @@ TOOL_NAMES = {
     "run_batch",
     "run_tests",
     "run_witness",
+    "suggest_config",
+    "validate_answers",
     "template_fingerprint",
     "template_status",
 }
@@ -317,6 +320,46 @@ async def test_list_presets_names_the_files_and_their_answers(client: Client):
     by_name = {preset["name"]: preset["answers"] for preset in payload["presets"]}
     assert by_name["library"] == {"project_type": "library"}
     assert by_name["online-judge-atcoder"]["oj_kind"] == "atcoder"
+
+
+@pytest.mark.anyio
+async def test_explain_choice_covers_preset_question_and_deviation(client: Client):
+    """The explain tool answers from the questionnaire's own words, filesystem only."""
+    preset = await call(client, "explain_choice", {"preset": "web-api"})
+    assert "project_type = 'web_api'" in preset["explanation"]
+    answer = await call(client, "explain_choice", {"question": "project_type", "value": "cli"})
+    assert "project_type" in answer["explanation"]
+    deviated = await call(client, "explain_choice", {"deviate_question": "project_type", "deviate_value": "cli"})
+    assert "include_scraping" in deviated["explanation"]
+
+
+@pytest.mark.anyio
+async def test_explain_choice_rejects_bad_input(client: Client):
+    """Unknown names and empty calls are tool errors, not empty explanations."""
+    result = await client.call_tool("explain_choice", {"preset": "no-such-preset"})
+    assert result.is_error is True
+    result = await client.call_tool("explain_choice", {})
+    assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_suggest_config_ranks_web_api_first_for_api(client: Client):
+    """The assistant's first step: requirement words in, preset candidates out."""
+    payload = await call(client, "suggest_config", {"requirements": "internal API, postgres, github actions"})
+    assert payload["matches"], "the acceptance requirements match nothing"
+    assert payload["matches"][0]["preset"] == "web-api"
+    assert payload["matches"][0]["answers"]["project_type"] == "web_api"
+
+
+@pytest.mark.anyio
+async def test_validate_answers_accepts_and_rejects(client: Client):
+    """Approved sets pass; an unknown question is refused with its reason."""
+    approved = await call(client, "validate_answers", {"answers": {"project_type": "web_api"}})
+    assert approved == {"ok": True, "errors": []}
+    refused = await call(client, "validate_answers", {"answers": {"project_type": "web_api", "unknown_q": 1}})
+    assert refused["ok"] is False
+    by_question = {error["question"]: error["reason"] for error in refused["errors"]}
+    assert "unknown_q" in by_question and "unknown question" in by_question["unknown_q"]
 
 
 @pytest.mark.anyio

@@ -266,6 +266,61 @@ def test_main_parses_the_new_subcommand(tmp_path: Path, monkeypatch: pytest.Monk
     assert seen == {"target": tmp_path, "preset": "library", "ref": "HEAD", "dry_run": True, "list_presets": False}
 
 
+def test_main_dispatches_the_verify_subcommand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """`main` routes `verify` to tools/verify.py with the directory and --against."""
+    seen: dict[str, Any] = {}
+
+    def fake_verify(argv: list[str] | None) -> int:
+        seen["argv"] = argv
+        return cli.OK
+
+    monkeypatch.setattr(cli.verify, "main", fake_verify)  # pyright: ignore[reportPrivateLocalImportUsage]  WHYNOT: patching the module's own import is the point.
+    other = tmp_path / "other"
+
+    assert cli.main(["verify", str(tmp_path)]) == cli.OK
+    assert seen == {"argv": [str(tmp_path)]}
+
+    assert cli.main(["verify", str(tmp_path), "--against", str(other)]) == cli.OK
+    assert seen == {"argv": ["--against", str(other), str(tmp_path)]}
+
+
+def test_main_dispatches_the_explain_subcommand(monkeypatch: pytest.MonkeyPatch):
+    """`main` routes `explain` to tools/explain.py with the preset/question/deviate flags."""
+    seen: dict[str, Any] = {}
+
+    def fake_explain(argv: list[str] | None) -> int:
+        seen["argv"] = argv
+        return cli.OK
+
+    monkeypatch.setattr(cli.explain, "main", fake_explain)  # pyright: ignore[reportPrivateLocalImportUsage]  WHYNOT: patching the module's own import is the point.
+
+    assert cli.main(["explain", "--preset", "web-api"]) == cli.OK
+    assert seen == {"argv": ["--preset", "web-api"]}
+
+    assert cli.main(["explain", "project_type", "cli"]) == cli.OK
+    assert seen == {"argv": ["project_type", "cli"]}
+
+    assert cli.main(["explain", "--deviate", "project_type", "cli"]) == cli.OK
+    assert seen == {"argv": ["--deviate", "project_type", "cli"]}
+
+
+def test_main_dispatches_the_suggest_subcommand(monkeypatch: pytest.MonkeyPatch):
+    """`main` routes `suggest` to tools/suggest.py with the requirements/validate/json flags."""
+    seen: dict[str, Any] = {}
+
+    def fake_suggest(argv: list[str] | None) -> int:
+        seen["argv"] = argv
+        return cli.OK
+
+    monkeypatch.setattr(cli.suggest, "main", fake_suggest)  # pyright: ignore[reportPrivateLocalImportUsage]  WHYNOT: patching the module's own import is the point.
+
+    assert cli.main(["suggest", "internal API, postgres"]) == cli.OK
+    assert seen == {"argv": ["internal API, postgres"]}
+
+    assert cli.main(["suggest", "--validate", "answers.yml", "--json"]) == cli.OK
+    assert seen == {"argv": ["--validate", "answers.yml", "--json"]}
+
+
 def test_new_list_presets_prints_every_preset_and_skips_detect(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):

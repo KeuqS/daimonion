@@ -37,12 +37,28 @@ presence, and every variant carries "check the current contest rules
 before submitting". There is no per-project on/off question — the agent
 guide is part of the built-in baseline.
 
+This coupling is deliberate but reviewed (TODO §43-2): the file mixes agent
+commands/editing rules with the ethics appendix. Verified 2026-10-11 on real
+renders — a library carries license-drift + pqc-fips, an `online_judge`
+workspace carries the contest-integrity rules, micropython carries the PKI
+trust-chain section — the appendix has no other distribution channel, so
+always-on is kept until an alternative carrier exists or user reports show
+the guide is noise in agent-free repos. Splitting agent instructions from
+human/legal content (option b) and re-gating the file (option c) both stay
+open pending that evidence.
+
 ## Out-of-scope is rejected explicitly, not ignored
 
 Areas this template deliberately does not cover (IaC, Terraform/K8s,
-Django-shaped stacks, ...) appear as `project_type` choices that
-**abort the render and point at an alternative** — the `web_django`
-pattern. Silently ignored options are never added.
+Django-shaped stacks, ...) are **not** advertised as `project_type`
+choices — the questionnaire lists only supported types, and an invalid
+value (a bad preset key, an unsupported `--data` answer) is rejected
+before anything is written, pointing at an alternative. This fail-closed
+behavior replaced the earlier `web_django` trap choice: out-of-scope
+stacks are rejected, never silently ignored or baited. Reinstating an
+out-of-scope name as a first-question candidate is considered only if a
+real user need exists and the rejected choice cannot be mistaken for a
+supported one (TODO §43).
 
 ## One recommended path + "No" for custom
 

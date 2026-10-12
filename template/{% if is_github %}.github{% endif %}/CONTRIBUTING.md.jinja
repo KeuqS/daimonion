@@ -28,7 +28,7 @@ The `{{ task_runner_effective }}` task runner drives the common commands:
 ```sh{# The rows below are the `_tasks.jinja` model — the same source AGENTS.md
    derives its table from — so this page cannot drift from the runner files.
    A row is printed only when the task exists in this render. #}
-{% for task_name in _t.agent_cmd_specs if task_name in (_t.tasks | map(attribute='name')) and (task_runner_effective == 'task' or task_name != 'type-check') %}{{ _t.agent_prefix }} {% if task_name in _t.agent_commented %}{{ task_name }}{{ (15 - (task_name | length)) * ' ' }}# {{ _t.agent_cmd_specs[task_name] }}{% else %}{{ task_name }}{% endif %}
+{% for task_name in _t.agent_cmd_specs if task_name in (_t.tasks | map(attribute='name')) and (runner_task or task_name != 'type-check') %}{{ _t.agent_prefix }} {% if task_name in _t.agent_commented %}{{ task_name }}{{ (15 - (task_name | length)) * ' ' }}# {{ _t.agent_cmd_specs[task_name] }}{% else %}{{ task_name }}{% endif %}
 {% endfor %}```
 
 Run `{{ _t.agent_prefix }} fix` before committing to apply formatting and lint

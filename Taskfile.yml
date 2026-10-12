@@ -171,3 +171,9 @@ tasks:
   check:
     desc: Run all quality checks
     deps: [lint, type-check, test, docs]
+
+  pipeline:
+    # order: upstream→downstream -- thin wrapper over the existing contract
+    # tests (contract manifest, then when-model); no new logic.
+    desc: Run the ecosystem pipeline contract slice
+    cmd: uv run pytest -q tests/test_contract_manifest.py tests/test_when_model.py

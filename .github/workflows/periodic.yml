@@ -26,3 +26,39 @@ jobs:
           # the vendored .github/pages helper (not user-facing links).
           args: --no-progress --exclude-path site --exclude-path build README.md docs
           fail: true
+
+  patch-rot:
+    # copier-fork/patches/*.patch are quoted diffs against pinned upstream
+    # copier (baseline v9.18.1): a patch that stops applying is PR rot that
+    # otherwise surfaces only when a human files the upstream PR. Reuses
+    # copier-fork/scripts/verify-patch.sh's `git apply --check` pattern
+    # against a fresh pinned checkout of copier-org/copier.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout pinned upstream copier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: copier-org/copier
+          ref: v9.18.1
+          path: upstream-copier
+          persist-credentials: false
+      - name: Check every patch still applies
+        run: |
+          set -euo pipefail
+          failed=0
+          for patch in copier-fork/patches/*.patch; do
+            if [ -e "$patch" ]; then
+              if git -C upstream-copier apply --check --verbose "../$patch"; then
+                echo "OK: $patch"
+              else
+                echo "ROT: $patch no longer applies against v9.18.1" >&2
+                failed=1
+              fi
+            fi
+          done
+          exit "$failed"

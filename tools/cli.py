@@ -50,11 +50,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import copier.errors
-import yaml
 from copier._main import Worker
 
 TOP = Path(__file__).resolve().parent.parent
@@ -62,11 +62,15 @@ if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
 from tools import adopt  # noqa: E402
+from tools import answers  # noqa: E402
 from tools import batch  # noqa: E402
 from tools import detect  # noqa: E402
+from tools import explain  # noqa: E402
+from tools import suggest  # noqa: E402
+from tools import verify  # noqa: E402
 from tools.git import run as run_git  # noqa: E402
 
-PRESETS = TOP / "presets"
+PRESETS = answers.PRESETS
 
 # Exit codes, the same contract as the tools this dispatches to: 0 ok,
 # 1 failed, 2 invalid request, 3 refused (another template owns the target).
@@ -85,18 +89,12 @@ class RequestError(Exception):
 
 def available_presets() -> list[str]:
     """The names `--preset` accepts: the answer files under `presets/`."""
-    return sorted(path.stem for path in PRESETS.glob("*.yml"))
+    return answers.preset_names(PRESETS)
 
 
 def preset_description(name: str) -> str:
-    lines = (PRESETS / f"{name}.yml").read_text(encoding="utf-8").splitlines()
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            text = stripped.lstrip("#").strip()
-            if text:
-                return text
-    return "(no description)"
+    """The preset file's leading comment (the family's one-line description)."""
+    return answers.preset_description(name, PRESETS)
 
 
 def preset_answers(name: str) -> dict[str, Any]:
@@ -106,16 +104,10 @@ def preset_answers(name: str) -> dict[str, Any]:
     questionnaire keeps the default copier would use for a non-interactive
     run.
     """
-    path = PRESETS / f"{name}.yml"
-    if not path.is_file():
-        known = ", ".join(available_presets()) or "(none)"
-        msg = f"unknown preset {name!r}: no presets/{name}.yml. Available presets: {known}"
-        raise RequestError(msg)
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(loaded, dict):
-        msg = f"{path} is not an answers mapping"
-        raise RequestError(msg)
-    return loaded
+    try:
+        return answers.read_preset(name, PRESETS)
+    except answers.PresetError as error:
+        raise RequestError(str(error)) from error
 
 
 def collision_warning(collisions: list[str]) -> str:
@@ -163,6 +155,23 @@ def _warn_unknown_preset_keys(worker: Worker | None, answers: dict[str, Any]) ->
         )
 
 
+def _fresh_dry_run(target: Path, data: dict[str, Any], resolved: str, reason: str) -> int:
+    """Print dry-run output predicting what fresh mode would create."""
+    print("dry run -- nothing written")
+    print("mode:    fresh")
+    print(f"ref:     {resolved}  ({reason})")
+    print(f"target:  {target}")
+    print("answers: " + ", ".join(f"{key}={value}" for key, value in sorted(data.items())))
+    source = adopt.render_fresh_source(data, resolved)
+    try:
+        planned = sorted(str(path.relative_to(source)) for path in source.rglob("*") if path.is_file())
+    finally:
+        shutil.rmtree(source, ignore_errors=True)
+    top = sorted({path.split("/")[0] for path in planned})
+    print(f"would create {len(planned)} file(s); top level: {', '.join(top)}")
+    return OK
+
+
 def _fresh(  # noqa: PLR0913  WHYNOT: a thin shell over copier's flags; preset_answers exists so the rendered ref can be checked for unknown preset keys after the copy.
     target: Path,
     data: dict[str, Any],
@@ -175,19 +184,7 @@ def _fresh(  # noqa: PLR0913  WHYNOT: a thin shell over copier's flags; preset_a
     """Render this checkout into an empty (or not yet created) directory."""
     resolved, reason = adopt.resolve_ref(ref)
     if dry_run:
-        print("dry run -- nothing written")
-        print("mode:    fresh")
-        print(f"ref:     {resolved}  ({reason})")
-        print(f"target:  {target}")
-        print("answers: " + ", ".join(f"{key}={value}" for key, value in sorted(data.items())))
-        source = adopt.render_fresh_source(data, resolved)
-        try:
-            planned = sorted(str(path.relative_to(source)) for path in source.rglob("*") if path.is_file())
-        finally:
-            shutil.rmtree(source, ignore_errors=True)
-        top = sorted({path.split("/")[0] for path in planned})
-        print(f"would create {len(planned)} file(s); top level: {', '.join(top)}")
-        return OK
+        return _fresh_dry_run(target, data, resolved, reason)
     try:
         worker = _render(target, data, resolved, defaults=defaults)
     except copier.errors.InteractiveSessionError as exc:
@@ -222,6 +219,26 @@ def _adopt(target: Path, answers: dict[str, Any], ref: str | None, *, dry_run: b
     return OK if adoption.ok or adoption.error is None else FAILED
 
 
+def _inspect_target_or_error(target: Path) -> tuple[detect.Detection | None, int | None]:
+    """Inspect target directory; returns (Detection, None) on success or (None, exit_code) on refusal."""
+    try:
+        detection = detect.detect(target)
+    except (detect.DetectError, OSError) as exc:
+        print(f"cannot inspect {target}: {exc}", file=sys.stderr)
+        return None, INVALID
+    if detection.mode == "foreign":
+        print(detect.render_report(detection), file=sys.stderr)
+        return None, REFUSED
+    if detection.mode == "update":
+        msg = (
+            f"{target} was generated from this template: update it with `copier update`"
+            " (or tools/adopt.py), not with a second copy"
+        )
+        print(msg, file=sys.stderr)
+        return None, INVALID
+    return detection, None
+
+
 def new(  # noqa: PLR0911  WHYNOT: one early return per input guard (list-presets, unknown preset, unreadable target, foreign, update) plus the two mode dispatches; a dispatch table would hide the guard order the errors depend on.
     target: Path, *, preset: str | None, ref: str | None, dry_run: bool, list_presets: bool = False
 ) -> int:
@@ -237,21 +254,9 @@ def new(  # noqa: PLR0911  WHYNOT: one early return per input guard (list-preset
         print(str(exc), file=sys.stderr)
         return INVALID
     target = target.resolve()
-    try:
-        detection = detect.detect(target)
-    except (detect.DetectError, OSError) as exc:
-        print(f"cannot inspect {target}: {exc}", file=sys.stderr)
-        return INVALID
-    if detection.mode == "foreign":
-        print(detect.render_report(detection), file=sys.stderr)
-        return REFUSED
-    if detection.mode == "update":
-        msg = (
-            f"{target} was generated from this template: update it with `copier update`"
-            " (or tools/adopt.py), not with a second copy"
-        )
-        print(msg, file=sys.stderr)
-        return INVALID
+    detection, error_code = _inspect_target_or_error(target)
+    if error_code is not None or detection is None:
+        return error_code if error_code is not None else INVALID
     if detection.collisions:
         print(collision_warning(detection.collisions), file=sys.stderr)
     if detection.mode == "adopt":
@@ -290,7 +295,57 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--ref", default=None, help="template revision to expand (default: this fork's newest release tag)"
     )
     new_command.add_argument("--dry-run", action="store_true", help="plan only; write nothing")
+    _add_verify_command(subcommands)
+    _add_explain_command(subcommands)
+    _add_suggest_command(subcommands)
     return parser.parse_args(argv)
+
+
+def _add_verify_command(subcommands: Any) -> None:
+    """Register the `verify` subcommand: one directory, optionally diffed against another."""
+    verify_command = subcommands.add_parser(
+        "verify", help="verify a generated project's composition contract (template ref, answers, ethics sections)"
+    )
+    verify_command.add_argument("dir", type=Path, help="generated project to verify")
+    verify_command.add_argument(
+        "--against",
+        type=Path,
+        default=None,
+        help="compare against another generated project (reports what changed)",
+    )
+
+
+def _add_explain_command(subcommands: Any) -> None:
+    """Register the `explain` subcommand: the same shape as `tools/explain.py` parses."""
+    explain_command = subcommands.add_parser(
+        "explain", help="explain a preset or an answer choice (why this value, what changes otherwise)"
+    )
+    explain_command.add_argument("--preset", default=None, help="explain one preset (e.g. --preset web-api)")
+    explain_command.add_argument("question", nargs="?", default=None, help="question to explain")
+    explain_command.add_argument("value", nargs="?", default=None, help="value to explain")
+    explain_command.add_argument(
+        "--deviate",
+        nargs=2,
+        default=None,
+        metavar=("QUESTION", "VALUE"),
+        help="explain what changes if QUESTION takes VALUE",
+    )
+
+
+def _add_suggest_command(subcommands: Any) -> None:
+    """Register the `suggest` subcommand: the same shape as `tools/suggest.py` parses."""
+    suggest_command = subcommands.add_parser(
+        "suggest", help="propose preset candidates for requirements, or validate an answers file"
+    )
+    suggest_command.add_argument("requirements", nargs="*", help="requirement words (e.g. 'internal API, postgres')")
+    suggest_command.add_argument(
+        "--validate",
+        type=Path,
+        default=None,
+        metavar="ANSWERS_YML",
+        help="validate an answers YAML file instead of suggesting (exit 2 when rejected)",
+    )
+    suggest_command.add_argument("--json", action="store_true", help="print the machine-readable payload")
 
 
 # --- installed (non-checkout) operation: delegate to the cached clone --------
@@ -414,6 +469,61 @@ def _delegate(argv: list[str]) -> int:
     )
 
 
+def _explain_argv(args: argparse.Namespace) -> list[str]:
+    """The `tools/explain.py` argv for the parsed `explain` subcommand."""
+    explain_argv: list[str] = []
+    if args.preset:
+        explain_argv += ["--preset", args.preset]
+    if args.deviate:
+        explain_argv += ["--deviate", args.deviate[0], args.deviate[1]]
+    if args.question:
+        explain_argv.append(args.question)
+    if args.value:
+        explain_argv.append(args.value)
+    return explain_argv
+
+
+def _suggest_argv(args: argparse.Namespace) -> list[str]:
+    """The `tools/suggest.py` argv for the parsed `suggest` subcommand."""
+    suggest_argv: list[str] = []
+    if args.validate is not None:
+        suggest_argv += ["--validate", str(args.validate)]
+    if args.json:
+        suggest_argv.append("--json")
+    suggest_argv += list(args.requirements)
+    return suggest_argv
+
+
+def _verify_argv(args: argparse.Namespace) -> list[str]:
+    """The `tools/verify.py` argv for the parsed `verify` subcommand."""
+    if args.against:
+        return ["--against", str(args.against), str(args.dir)]
+    return [str(args.dir)]
+
+
+def _dispatch_verify(args: argparse.Namespace) -> int:
+    """Run the `verify` subcommand through `tools/verify.py`."""
+    return verify.main(_verify_argv(args))
+
+
+def _dispatch_explain(args: argparse.Namespace) -> int:
+    """Run the `explain` subcommand through `tools/explain.py`."""
+    return explain.main(_explain_argv(args))
+
+
+def _dispatch_suggest(args: argparse.Namespace) -> int:
+    """Run the `suggest` subcommand through `tools/suggest.py`."""
+    return suggest.main(_suggest_argv(args))
+
+
+_DISPATCH: dict[str, Callable[[argparse.Namespace], int]] = {
+    "verify": _dispatch_verify,
+    "explain": _dispatch_explain,
+    "suggest": _dispatch_suggest,
+}
+"""One thin shell per forwarded subcommand, each owning its argv translation."""
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point: dispatch on the mode `tools/detect.py` reports.
 
@@ -425,6 +535,9 @@ def main(argv: list[str] | None = None) -> int:
     if not (TOP / "copier.yml").is_file():
         return _delegate(argv if argv is not None else sys.argv[1:])
     args = _parse_args(argv)
+    forward = _DISPATCH.get(args.command)
+    if forward is not None:
+        return forward(args)
     return new(args.dir, preset=args.preset, ref=args.ref, dry_run=args.dry_run, list_presets=args.list_presets)
 
 

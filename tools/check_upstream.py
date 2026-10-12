@@ -183,11 +183,8 @@ def eol_date(product: str, cycle: str) -> str | None:
     return None
 
 
-def extract_pins() -> list[Pin]:
-    """Extract the pins from the template files (no network)."""
-    pins: list[Pin] = []
-
-    # MicroPython tag: single source of truth is the internal variable.
+def _extract_micropython_pins() -> list[Pin]:
+    """Extract MicroPython version and stubs pin from copier config."""
     version = "?"
     sources = [TOP / "copier.yml", *QUESTIONS_DIR.glob("*.yml")]
     for src in sources:
@@ -199,120 +196,122 @@ def extract_pins() -> list[Pin]:
         if ver_m:
             version = ver_m.group(1)
             break
-    pins.append(Pin(name="MicroPython tag (micropython_version)", current=version, checkable=True))
-    pins.append(
+    return [
+        Pin(name="MicroPython tag (micropython_version)", current=version, checkable=True),
         Pin(
             name="micropython-<port>-stubs pin",
             current=f"~={version.removeprefix('v')} (community stubs)",
             checkable=True,
-        )
-    )
+        ),
+    ]
 
-    # CUDA: Dockerfile.gpu base image + uv index tag.
+
+def _extract_platform_pins() -> list[Pin]:
+    """Extract base images, runtime versions, and distro choices."""
     gpu_src = GPU_DOCKERFILE.read_text()
     cuda_m = re.search(r"FROM nvidia/cuda:([^\s]+) AS", gpu_src)
     cuda_base = cuda_m.group(1) if cuda_m else "?"
-    pins.append(Pin(name="CUDA Docker base (Dockerfile.gpu)", current=cuda_base, checkable=True))
-    pyproject_src = PYPROJECT_JINJA.read_text()
-    for partial in sorted((TOP / "_shared").glob("pyproject-*.toml.jinja")):
-        pyproject_src += "\n" + partial.read_text()
 
-    # ROS 2 distros offered in the questionnaire.
     ros_src = ROS2_QUESTIONS.read_text()
     distros = re.findall(r": (humble|jazzy|kilted|rolling)\n", ros_src)
-    pins.append(Pin(name="ROS 2 distros offered", current=",".join(sorted(set(distros))) or "?", checkable=True))
 
-    # Python floor: the default branch of `_shared/macros.jinja`'s
-    # python_version() macro -- the single source that requires-python, the
-    # classifiers, the type checkers and .python-version all render from. The
-    # macro picks 3.10/3.12 for ros2 distros; the floor we track is its `else`
-    # value.
     macros_src = MACROS_JINJA.read_text()
     floor_m = re.search(r"else '(\d+\.\d+)'\)\s*\}\}", macros_src)
     floor = floor_m.group(1) if floor_m else "?"
-    pins.append(Pin(name="Python floor (requires-python)", current=floor, checkable=True))
 
-    # Postgres image tag (compose + CI service must agree).
     compose_src = COMPOSE_JINJA.read_text()
     ci_src = CI_JINJA.read_text()
     pg_tags = set(re.findall(r"image: (postgres:[^\s]+)", compose_src)) | set(
         re.findall(r"image: (postgres:[^\s]+)", ci_src)
     )
-    pins.append(Pin(name="Postgres image (compose + CI)", current=",".join(sorted(pg_tags)) or "?", checkable=True))
 
-    # Ubuntu base codename.
     docker_src = (TEMPLATE_DIR / "{% if docker or cicd_extras %}Dockerfile{% endif %}.jinja").read_text()
     ubuntu_tags = set(re.findall(r"(?:ubuntu:|ubuntu-devcontainer:)(\w+)", docker_src))
-    pins.append(Pin(name="Ubuntu base (Dockerfile)", current=",".join(sorted(ubuntu_tags)) or "?", checkable=False))
-
-    # Devcontainer base image: the hardcoded ghcr reference every generated
-    # devcontainer pulls. Renovate keeps the *version* current; this checks
-    # the image still EXISTS -- a removed package 404s every devcontainer
-    # build for every generated project.
     base_m = re.search(r"FROM (ghcr\.io/\S+) AS developer", docker_src)
-    pins.append(Pin(name="Devcontainer base (Dockerfile)", current=base_m.group(1) if base_m else "?", checkable=True))
 
-    # PyPI floors per combination category: every runtime floor pinned in
-    # the pyproject template must exist on PyPI (a floor above latest, or a
-    # removed release, breaks `uv sync` for that combination). Categories
-    # mirror the questionnaire axes so a combination that cannot stay
-    # current is visible per axis, not as one flat list.
-    for category, pattern in {
+    return [
+        Pin(name="CUDA Docker base (Dockerfile.gpu)", current=cuda_base, checkable=True),
+        Pin(name="ROS 2 distros offered", current=",".join(sorted(set(distros))) or "?", checkable=True),
+        Pin(name="Python floor (requires-python)", current=floor, checkable=True),
+        Pin(name="Postgres image (compose + CI)", current=",".join(sorted(pg_tags)) or "?", checkable=True),
+        Pin(name="Ubuntu base (Dockerfile)", current=",".join(sorted(ubuntu_tags)) or "?", checkable=False),
+        Pin(name="Devcontainer base (Dockerfile)", current=base_m.group(1) if base_m else "?", checkable=True),
+    ]
+
+
+def _load_combined_pyproject_sources() -> str:
+    """Load pyproject template along with all _shared partials."""
+    src = PYPROJECT_JINJA.read_text()
+    for partial in sorted((TOP / "_shared").glob("pyproject-*.toml.jinja")):
+        src += "\n" + partial.read_text()
+    return src
+
+
+def _extract_pypi_floor_pins(pyproject_src: str) -> list[Pin]:
+    """Extract PyPI dependency floor pins by category."""
+    pins: list[Pin] = []
+    categories = {
         "core (all projects)": r'"(structlog|ruff|pytest)"',
         "web_api": r'"(fastapi|uvicorn|sqlalchemy|alembic|asyncpg|pydantic-settings|slowapi|prometheus-client)[^"]*"',
         "kaggle/DS": r'"(torch|torchvision|lightgbm|xgboost|optuna|hydra-core|polars|duckdb|pyarrow)[^"]*"',
         "ctf": r'"(pwntools|z3-solver)[^"]*"',
         "mcp": r'"(mcp\[[^\]]*\]|mcp)[^"]*"',
         "bot": r'"(discord\.py|discord-py|slack-bolt|slack_bolt|line-bot-sdk|line_bot_sdk)[^"]*"',
-    }.items():
+    }
+    for category, pattern in categories.items():
         for dep in sorted(set(re.findall(pattern, pyproject_src))):
             floor_m = re.search(rf'"{re.escape(dep)}([^"]*)"', pyproject_src)
             floor = floor_m.group(1) if floor_m else "?"
             pins.append(Pin(name=f"PyPI floor [{category}] {dep}", current=floor or "unpinned", checkable=True))
+    return pins
 
-    # copier itself: this repo's own dev dependency, not a template floor.
-    # Unlike the PyPI-floor pins above (which check the *floor* still
-    # exists), this checks whether a newer *major* than our ceiling has
-    # shipped -- that's the drift signal worth a human look, since a copier
-    # major bump can change run_copy()'s signature / exception types (see
-    # docs/explanations/template-dev.md).
+
+def _extract_copier_pin() -> list[Pin]:
+    """Extract the repo's own copier dev-dependency ceiling."""
     root_pyproject_src = (TOP / "pyproject.toml").read_text()
     copier_m = re.search(r'"copier>=(\d+),<(\d+)"', root_pyproject_src)
     if copier_m:
         floor, ceiling = copier_m.group(1), copier_m.group(2)
-        pins.append(Pin(name="copier ceiling (root pyproject.toml)", current=f">={floor},<{ceiling}", checkable=True))
+        return [Pin(name="copier ceiling (root pyproject.toml)", current=f">={floor},<{ceiling}", checkable=True)]
+    return []
 
-    # just CLI version pinned for setup-just (zizmor unpinned-tools): the
-    # setup-runner composite installs it without renovate coverage, so the
-    # weekly drift report is the only update signal. The composite is the
-    # only home of that pin since the §19 composite-action extraction
-    # (callers _tasks / _test / _docs / _dist hold no just-version).
+
+def _extract_runner_pins() -> list[Pin]:
+    """Extract just CLI version pinned in composite action."""
     composite_src = (TOP / ".github" / "actions" / "setup-runner" / "action.yml").read_text()
     just_versions = set(re.findall(r'just-version: "(\d+\.\d+\.\d+)"', composite_src))
-    pins.append(Pin(name="just version (setup-just)", current=",".join(sorted(just_versions)) or "?", checkable=True))
+    return [Pin(name="just version (setup-just)", current=",".join(sorted(just_versions)) or "?", checkable=True)]
 
-    # Hygiene workflow pins (added with the pre-commit removal): the gitleaks
-    # action version comment and the actionlint docker image digest are the
-    # only update signals for both -- renovate updates neither (disabled
-    # rule in generated projects, tracked here manually in the root).
+
+def _extract_hygiene_pins() -> list[Pin]:
+    """Extract pinned versions and digests in hygiene workflow."""
     hygiene_src = (TOP / ".github" / "workflows" / "_hygiene.yml").read_text()
     gitleaks_m = re.search(r"gitleaks/gitleaks-action@[0-9a-f]{40} # v(\d+\.\d+\.\d+)", hygiene_src)
-    pins.append(
+    digest_m = re.search(r"rhysd/actionlint@sha256:([0-9a-f]{64})", hygiene_src)
+    return [
         Pin(
             name="gitleaks-action version (_hygiene.yml)",
             current=gitleaks_m.group(1) if gitleaks_m else "?",
             checkable=True,
-        )
-    )
-    digest_m = re.search(r"rhysd/actionlint@sha256:([0-9a-f]{64})", hygiene_src)
-    pins.append(
+        ),
         Pin(
             name="actionlint image digest (_hygiene.yml)",
             current=digest_m.group(1)[:12] if digest_m else "?",
             checkable=True,
-        )
-    )
+        ),
+    ]
 
+
+def extract_pins() -> list[Pin]:
+    """Extract the pins from the template files (no network)."""
+    pyproject_src = _load_combined_pyproject_sources()
+    pins: list[Pin] = []
+    pins.extend(_extract_micropython_pins())
+    pins.extend(_extract_platform_pins())
+    pins.extend(_extract_pypi_floor_pins(pyproject_src))
+    pins.extend(_extract_copier_pin())
+    pins.extend(_extract_runner_pins())
+    pins.extend(_extract_hygiene_pins())
     return pins
 
 
@@ -475,54 +474,56 @@ def _resolve_one(pin: Pin, today: str) -> str | None:  # noqa: PLR0911, PLR0912,
     return None
 
 
-def _is_drift(pin: Pin) -> tuple[bool, str]:  # noqa: PLR0911  WHYNOT: one branch per pin family; a dispatch table would separate each verdict from its evidence
-    """Return (drift, message) for a resolved pin."""
-    if pin.upstream in (None, "?"):
-        return False, f"[info]   {pin.name}: {pin.current} (upstream unknown)"
-    upstream = pin.upstream
-    name, current = pin.name, pin.current
-    # copier ceiling needs a numeric major comparison, which fits neither
-    # the exact-match table nor the substring triggers below.
-    if name.startswith("copier ceiling"):
-        ceiling = int(current.split("<")[1])
-        latest_major = _parse_version(upstream)[0] if upstream else None
-        drift = latest_major is not None and latest_major >= ceiling
-        msg = (
-            f"[DRIFT]  {name}: ceiling <{ceiling} but latest is {upstream}"
-            if drift
-            else f"[ok]     {name}: {current} (latest {upstream})"
-        )
-        return drift, msg
+def _check_copier_ceiling_drift(pin: Pin) -> tuple[bool, str]:
+    """Check whether a newer major release than the ceiling has shipped."""
+    ceiling = int(pin.current.split("<")[1])
+    latest_major = _parse_version(pin.upstream)[0] if pin.upstream else None
+    drift = latest_major is not None and latest_major >= ceiling
+    msg = (
+        f"[DRIFT]  {pin.name}: ceiling <{ceiling} but latest is {pin.upstream}"
+        if drift
+        else f"[ok]     {pin.name}: {pin.current} (latest {pin.upstream})"
+    )
+    return drift, msg
+
+
+def _check_exact_match_drift(pin: Pin) -> tuple[bool, str] | None:
+    """Check exact equality drift against upstream."""
     by_exact_match = {
         "gitleaks-action version": (
-            f"v{current}" == upstream,
-            f"[ok]     {name}: v{current}",
-            f"[DRIFT]  {name}: v{current} -> official latest {upstream}",
+            f"v{pin.current}" == pin.upstream,
+            f"[ok]     {pin.name}: v{pin.current}",
+            f"[DRIFT]  {pin.name}: v{pin.current} -> official latest {pin.upstream}",
         ),
         "actionlint image digest": (
-            current == upstream,
-            f"[ok]     {name}: sha256:{current}…",
-            f"[DRIFT]  {name}: image digest changed (latest tag now {upstream})",
+            pin.current == pin.upstream,
+            f"[ok]     {pin.name}: sha256:{pin.current}…",
+            f"[DRIFT]  {pin.name}: image digest changed (latest tag now {pin.upstream})",
         ),
         "just version": (
-            current == upstream,
-            f"[ok]     {name}: {current}",
-            f"[DRIFT]  {name}: {current} -> official latest {upstream}",
+            pin.current == pin.upstream,
+            f"[ok]     {pin.name}: {pin.current}",
+            f"[DRIFT]  {pin.name}: {pin.current} -> official latest {pin.upstream}",
         ),
         "MicroPython tag": (
-            current == upstream,
-            f"[ok]     {name}: {current}",
-            f"[DRIFT]  {name}: {current} -> official latest {upstream}",
+            pin.current == pin.upstream,
+            f"[ok]     {pin.name}: {pin.current}",
+            f"[DRIFT]  {pin.name}: {pin.current} -> official latest {pin.upstream}",
         ),
         "micropython-<port>-stubs": (
-            upstream == "stub release exists",
-            f"[ok]     {name}: {current}",
-            f"[DRIFT]  {name}: {current} ({upstream})",
+            pin.upstream == "stub release exists",
+            f"[ok]     {pin.name}: {pin.current}",
+            f"[DRIFT]  {pin.name}: {pin.current} ({pin.upstream})",
         ),
     }
     for prefix, (ok, ok_msg, drift_msg) in by_exact_match.items():
-        if name.startswith(prefix):
+        if pin.name.startswith(prefix):
             return (False, ok_msg) if ok else (True, drift_msg)
+    return None
+
+
+def _check_trigger_markers_drift(pin: Pin) -> tuple[bool, str] | None:
+    """Check substring markers in upstream response indicating drift."""
     triggers = {
         "torch uv index": ("frozen", "unreachable", "empty"),
         "ROS 2 distros": ("EOL passed",),
@@ -530,16 +531,32 @@ def _is_drift(pin: Pin) -> tuple[bool, str]:  # noqa: PLR0911  WHYNOT: one branc
         "PyPI floor": ("REMOVED",),
         "Devcontainer base": ("MISSING",),
     }
+    if pin.upstream is None:
+        return None
+    upstream = pin.upstream
     for prefix, markers in triggers.items():
-        if name.startswith(prefix):
+        if pin.name.startswith(prefix):
             if any(m in upstream for m in markers):
-                return True, f"[DRIFT]  {name}: {current} ({upstream})"
+                return True, f"[DRIFT]  {pin.name}: {pin.current} ({upstream})"
             if "lookup failed" in upstream:
-                # an unresolved check is a red run, but it is not drift: the
-                # drift-issue step greps for [DRIFT] and must not file
-                return True, f"[warn]   {name}: {current} ({upstream})"
-            return False, f"[ok]     {name}: {current} ({upstream})"
-    return False, f"[info]   {name}: {current} ({upstream})"
+                return True, f"[warn]   {pin.name}: {pin.current} ({upstream})"
+            return False, f"[ok]     {pin.name}: {pin.current} ({upstream})"
+    return None
+
+
+def _is_drift(pin: Pin) -> tuple[bool, str]:
+    """Return (drift, message) for a resolved pin."""
+    if pin.upstream in (None, "?"):
+        return False, f"[info]   {pin.name}: {pin.current} (upstream unknown)"
+    if pin.name.startswith("copier ceiling"):
+        return _check_copier_ceiling_drift(pin)
+    match_result = _check_exact_match_drift(pin)
+    if match_result is not None:
+        return match_result
+    trigger_result = _check_trigger_markers_drift(pin)
+    if trigger_result is not None:
+        return trigger_result
+    return False, f"[info]   {pin.name}: {pin.current} ({pin.upstream})"
 
 
 def report(pins: list[Pin]) -> int:

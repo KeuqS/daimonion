@@ -203,6 +203,24 @@ class Vocabulary:
         return tuple(dict.fromkeys(kind for kinds in self.oj_kind_choices.values() for kind in kinds))
 
 
+def _derive_leaf_traits(project_type: str, oj_kind: Any, includes: tuple[str, ...]) -> dict[str, bool]:
+    """Derive structural traits (web_api, data_science, kaggle, src_layout)."""
+    web_api = project_type == "web_api" or "include_web_api" in includes
+    data_science = project_type == "data_science" or "include_data_science" in includes
+    return {
+        "web_api": web_api,
+        "data_science": data_science,
+        "kaggle": project_type == "online_judge" and oj_kind == "kaggle",
+        "src_layout": project_type in ("library", "cli") and not web_api,
+    }
+
+
+def _extract_domain_traits(domain_raw: Any, allowed_domains: tuple[str, ...]) -> tuple[str, ...]:
+    """Extract known domain labels from string or list input."""
+    chosen = {domain_raw} if isinstance(domain_raw, str) else set(domain_raw or [])
+    return tuple(name for name in allowed_domains if name in chosen)
+
+
 @dataclass(frozen=True)
 class Invariants:
     """The loaded file: its rows, predicate registry, exclusions and merge contracts."""
@@ -235,31 +253,19 @@ class Invariants:
         gates_off = tuple(name for name in self.vocabulary.gates if answers.get(name) is False)
         oj_kind = answers.get("oj_kind")
         bot_platform_raw = answers.get("bot_platform")
-        web_api = project_type == "web_api" or "include_web_api" in includes
-        data_science = project_type == "data_science" or "include_data_science" in includes
-        # The multiselect is recorded as a list of chosen labels; a bare
-        # string is accepted too (a forced data-file answer or a hand-edited
-        # answers file can carry either spelling), and an unknown label is
-        # dropped rather than invented -- the vocabulary's own list defines
-        # what a domain can be, so a typo cannot make a leaf unclassifiable.
-        domain_raw = answers.get("domain_traits", [])
-        chosen = {domain_raw} if isinstance(domain_raw, str) else set(domain_raw or [])
+        traits = _derive_leaf_traits(project_type, oj_kind, includes)
+        domains = _extract_domain_traits(answers.get("domain_traits", []), self.vocabulary.domains)
         return Facts(
             project_type=project_type,
             oj_kind=oj_kind if isinstance(oj_kind, str) else "",
             includes=includes,
             gates_off=gates_off,
-            traits={
-                "web_api": web_api,
-                "data_science": data_science,
-                "kaggle": project_type == "online_judge" and oj_kind == "kaggle",
-                "src_layout": project_type in ("library", "cli") and not web_api,
-            },
+            traits=traits,
             bot_platform=(
                 bot_platform_raw if isinstance(bot_platform_raw, str) else self.vocabulary.bot_platform_default
             ),
             bot_platform_asked=isinstance(bot_platform_raw, str),
-            domains=tuple(name for name in self.vocabulary.domains if name in chosen),
+            domains=domains,
         )
 
     def rows_for(self, answers: Mapping[str, Any]) -> tuple[LeafClass, ...]:

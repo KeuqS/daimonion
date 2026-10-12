@@ -356,6 +356,47 @@ task_runner_effective:
     default: "{{ task_runner_pixi if package_manager == 'pixi' else task_runner }}"
     when: false
 
+# Package-manager shorthands (TODO.md §28.5 R1: the `package_manager == ...`
+# ternaries repeated across the README / Dockerfile / pyproject / CI bodies).
+# Raw answers, not effective settings: the ROS environment's
+# ros2_package_manager is a different variable and keeps its own spelling.
+is_uv:
+    type: bool
+    default: "{{ package_manager == 'uv' }}"
+    when: false
+
+is_poetry:
+    type: bool
+    default: "{{ package_manager == 'poetry' }}"
+    when: false
+
+is_pixi:
+    type: bool
+    default: "{{ package_manager == 'pixi' }}"
+    when: false
+
+# Task-runner shorthands. Composed on task_runner_effective (not the raw
+# task_runner answer: under package_manager == 'pixi' the runner comes from
+# task_runner_pixi), so the README / AGENTS.md / CONTRIBUTING tables read a
+# name instead of re-spelling the comparison.
+runner_just:
+    type: bool
+    default: "{{ task_runner_effective == 'just' }}"
+    when: false
+
+runner_task:
+    type: bool
+    default: "{{ task_runner_effective == 'task' }}"
+    when: false
+
+# Strictness shorthand. The questionnaire offers exactly four levels (none /
+# basic / recommended / full), so `not strictness_minimal` is the same set as
+# `strictness in ['recommended', 'full']` wherever the quality gates branch.
+strictness_minimal:
+    type: bool
+    default: "{{ strictness in ['none', 'basic'] }}"
+    when: false
+
 license_effective:
     type: str
     default: "{{ 'AGPL-3.0' if scraping_memorious_effective else license }}"

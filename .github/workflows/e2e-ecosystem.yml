@@ -1,0 +1,141 @@
+name: E2E ecosystem
+
+# Full cross-repo pipeline (TODO §41-A2): law-map export -> codex
+# tools/validate.py -> daimonion render -> the generated AGENTS.md carries
+# the codex-derived ethics sections. The pairwise checks this complements
+# (law-map CI's `validate --codex`, this repo's scheduled-check.yml
+# `law-map-review-by`) each pin one edge; a schema change that keeps both
+# edges green while breaking the handoff between them only shows here,
+# where the whole chain runs.
+#
+# Weekly plus manual dispatch only: three checkouts and two `uv run` env
+# syncs are too heavy for push/PR. Staggered from the other scheduled
+# workflows (check-upstream.yml MON 06:00, check-upstream-fork.yml TUE 06:00,
+# scheduled-check.yml and ethics-sync.yml TUE 07:00, periodic.yml WED 08:00,
+# dependency-audit.yml THU 07:00, update-rehearsal.yml SUN 05:00, ci.yml
+# nightly 03:00, witness.yml 04:00, scorecard.yml SAT 01:30) so a failure
+# names exactly this pipeline.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * FRI"
+
+jobs:
+  e2e:
+    name: law-map export, codex validate, daimonion render
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout law-map
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ConstitutiveTemplates/law-map
+          path: law-map
+          persist-credentials: false
+
+      - name: Checkout good-future-codex
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ConstitutiveTemplates/good-future-codex
+          path: good-future-codex
+          persist-credentials: false
+
+      - name: Checkout daimonion
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: daimonion
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Export law-map obligations as codex skeletons
+        working-directory: law-map
+        run: |
+          set -euo pipefail
+          uv run law-map export --out ../e2e-export
+          uv run law-map validate --codex ../good-future-codex
+          # validate --codex proves every related_sections id resolves to
+          # sections/<tier>/<slug>.md.jinja in the codex checkout; the
+          # assertion below proves the export skeletons themselves carry the
+          # codex section header shape (a schema change that drops the header
+          # keeps validate green but breaks the codex handoff).
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          out = Path("../e2e-export")
+          files = sorted(out.glob("*.md.jinja"))
+          assert files, "law-map export wrote no section skeletons"
+          header = re.compile(r"\{# ethics: id=\S+ version=\S+ status=\S+ triggers=\[.*?\] #\}")
+          bad = [p.name for p in files if not header.search(p.read_text(encoding="utf-8").splitlines()[0])]
+          assert not bad, f"export skeletons without a codex ethics header: {bad}"
+          print(f"export ok: {len(files)} skeleton(s) with ethics headers")
+          PY
+
+      - name: Validate the codex corpus
+        working-directory: good-future-codex
+        run: uv run --with pyyaml python tools/validate.py
+        # Exits 1 on any structural drift (a section missing from MANIFEST,
+        # a malformed ethics header, an expired review_by, jinja leaking
+        # into a flag-agnostic body).
+
+      - name: Render one project and assert the ethics appendix landed
+        working-directory: daimonion
+        run: |
+          set -euo pipefail
+          uv run --locked python -m tools.cli new ../e2e-project --preset web-api --ref HEAD
+          # --ref HEAD renders this checkout's working tree: the pipeline
+          # tests today's template, not the newest release tag.
+          #
+          # The render's AGENTS.md must carry the codex-derived ethics
+          # sections (the unconditional active registry rows -- the same
+          # vendored text tools/check_ethics_drift.py guards against codex
+          # drift). A registry/gating change that silently drops a section
+          # from the render keeps both upstream checks green and fails here.
+          uv run --locked python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".")
+          from tools.ethics import load_registry, section_title
+
+          agents = Path("../e2e-project/AGENTS.md").read_text(encoding="utf-8")
+          required = [
+              row for row in load_registry()
+              if row.get("status") == "active" and row.get("gate") == "true"
+          ]
+          assert required, "no unconditional active ethics section: the registry lost its always-on row"
+          missing = [row["id"] for row in required if section_title(row) not in agents]
+          assert not missing, (
+              "rendered AGENTS.md is missing codex-derived ethics sections: " + ", ".join(missing)
+          )
+          print(f"render ok: {len(required)} unconditional active section(s) present in AGENTS.md")
+          PY
+
+      - name: Open drift issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing=$(gh issue list --search "E2E ecosystem pipeline failed" \
+            --state open --json number --jq 'length')
+          if [ "$existing" -eq 0 ]; then
+            gh issue create \
+              --title "E2E ecosystem pipeline failed (scheduled check)" \
+              --body "The weekly law-map export -> codex validate -> daimonion render pipeline broke with no repo changes involved: a schema or section-id change in one repo silently broke a downstream edge. See: $RUN_URL" \
+              --label "documentation"
+          else
+            echo "An issue for this drift is already open; skipping."
+          fi

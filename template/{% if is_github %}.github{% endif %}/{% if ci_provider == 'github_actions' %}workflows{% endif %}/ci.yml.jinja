@@ -67,7 +67,7 @@ jobs:
     uses: ./.github/workflows/_tasks.yml
     with:
       task_runner: {{ task_runner_effective }}
-      task: lint{{ ",type-check" if strictness in ['recommended', 'full'] else "" }}{{ ",license-check" if strictness in ['recommended', 'full'] and license_check_effective else "" }}
+      task: lint{{ ",type-check" if not strictness_minimal else "" }}{{ ",license-check" if not strictness_minimal and license_check_effective else "" }}
 {% raw %}
   hygiene:
     uses: ./.github/workflows/_hygiene.yml
@@ -80,7 +80,7 @@ jobs:
       matrix:
         runs-on: ["ubuntu-latest"] # can add windows-latest, macos-latest
 {% endraw %}
-        python-version: {{ '["3.11", "3.12", "3.13", "3.14"]' if package_manager == "uv" else '["3.11"]' }}
+        python-version: {{ '["3.11", "3.12", "3.13", "3.14"]' if is_uv else '["3.11"]' }}
 {% raw %}
       fail-fast: false
 {% endraw %}
@@ -223,6 +223,7 @@ jobs:
           ')
           if [ -n "$failing" ]; then
             echo "$failing"
+            echo "Reproduce it locally via the blast-radius table in .github/CONTRIBUTING.md"
             exit 1
           fi
 {% endraw -%}{% endif -%}

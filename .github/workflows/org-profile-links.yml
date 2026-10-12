@@ -1,0 +1,30 @@
+name: Org profile links
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly link check for the org profile README, which lives in the
+    # published ConstitutiveTemplates/.github repo (profile/README.md), not
+    # in this one -- so periodic.yml's lychee step cannot see it. Staggered
+    # from the other scheduled workflows (periodic WED 08:00,
+    # dependency-audit THU 07:00, e2e-ecosystem FRI 07:00).
+    - cron: "0 9 * * THU"
+
+permissions:
+  contents: read
+
+jobs:
+  linkcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout org profile repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ConstitutiveTemplates/.github
+          persist-credentials: false
+      - name: Link Checker
+        uses: lycheeverse/lychee-action@01a5c94d8e012550040658854b90a7a7301e75ca # v2.6.0
+        with:
+          args: --no-progress profile/README.md
+          fail: true

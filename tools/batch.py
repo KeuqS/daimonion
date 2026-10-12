@@ -142,19 +142,39 @@ every comparison of renders takes them out first (TODO.md §28.3 3c / §28.5
 R3: this tuple is the one declaration -- a new stamp is a one-line edit here,
 and the two readers below follow it)."""
 
+MANIFEST_FILE = ".daimonion-manifest.yml"
+"""The composition contract: the public record beside the answers file."""
+
+MANIFEST_STAMPS = ("template_ref",)
+"""The manifest keys that vary per render instead of with the composition.
+
+`template_ref` is the answers file's `_commit` under the manifest's own key
+(tools/verify.py holds the two to each other), so it varies exactly when
+`_commit` does -- including the synthetic-commit churn of dirty-template
+renders. The two readers below take it out alongside RENDER_STAMPS; a key
+absent from the parsed file is a no-op pop/miss, so neither reader needs to
+know which file its bytes came from."""
+
 
 def strip_render_stamps(data: bytes) -> bytes:
-    """`.copier-answers.yml` bytes without the stamps, canonically re-encoded.
+    """Render-record bytes without the stamps, canonically re-encoded.
 
     The comparison form: a manifest hash of a rendered tree, so two renders of
     the same answers hash equal whatever checkout or revision produced them.
     The canonical re-encoding (sorted-key JSON) is part of the definition --
-    the YAML key order copier chose is not worth carrying.
+    the YAML key order copier chose is not worth carrying. Applies to both the
+    answers file (RENDER_STAMPS) and the composition manifest (MANIFEST_STAMPS):
+    each file carries only its own keys, so the other's pop is a no-op.
     """
     parsed = yaml.safe_load(data.decode("utf-8")) or {}
-    for key in RENDER_STAMPS:
+    for key in (*RENDER_STAMPS, *MANIFEST_STAMPS):
         parsed.pop(key, None)
     return json.dumps(parsed, sort_keys=True).encode("utf-8")
+
+
+def answers_body(answers: dict[str, Any]) -> dict[str, Any]:
+    """The answers without copier's per-render stamps (tools/verify.py's drift view reads them this way)."""
+    return {key: value for key, value in answers.items() if key not in RENDER_STAMPS}
 
 
 def mask_render_stamps(data: bytes, mask: str = "<per-render>") -> bytes:
@@ -162,9 +182,10 @@ def mask_render_stamps(data: bytes, mask: str = "<per-render>") -> bytes:
 
     The display form, for a unified diff: the YAML stays line-readable and two
     renders of the same answers still compare equal -- only the values are
-    hidden, not the keys or the file's shape.
+    hidden, not the keys or the file's shape. Covers both stamp sets (see
+    strip_render_stamps): a key the file does not carry matches nothing.
     """
-    for key in RENDER_STAMPS:
+    for key in (*RENDER_STAMPS, *MANIFEST_STAMPS):
         data = re.sub(rf"^{re.escape(key)}:.*$".encode(), f"{key}: {mask}".encode(), data, flags=re.MULTILINE)
     return data
 
@@ -683,46 +704,51 @@ def check_toml(dest: Path, entries: list[dict[str, Any]]) -> list[Check]:
     return checks
 
 
+def _judge_single_command(dest: Path, command: dict[str, Any], request_id: str) -> list[Check]:
+    """Run one shell command and judge its exit code and regex matchers."""
+    run = str(command["run"])
+    cwd = dest / str(command.get("cwd", "."))
+    timeout = int(command.get("timeout", DEFAULT_TIMEOUT))
+    try:
+        proc = subprocess.run(  # noqa: S602  WHYNOT: request files are trusted input, like a Makefile.
+            run,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return [Check(name=f"{request_id}: run {run!r}", ok=False, detail=f"timeout after {timeout}s")]
+    expected_exit = int(command.get("exit", 0))
+    output = (proc.stdout or "") + (proc.stderr or "")
+    checks = [
+        Check(
+            name=f"run {run!r} exit {expected_exit}",
+            ok=proc.returncode == expected_exit,
+            detail=f"exit {proc.returncode}: {output.strip()[-OUTPUT_LIMIT:]}",
+        )
+    ]
+    for key, stream in (("stdout_regex", proc.stdout or ""), ("stderr_regex", proc.stderr or "")):
+        if key in command:
+            pattern = str(command[key])
+            found = re.search(pattern, stream, re.MULTILINE) is not None
+            checks.append(
+                Check(
+                    name=f"run {run!r} {key} /{pattern}/",
+                    ok=found,
+                    detail=(stream.strip()[-OUTPUT_LIMIT:] if not found else "found"),
+                )
+            )
+    return checks
+
+
 def check_commands(dest: Path, commands: list[dict[str, Any]], request_id: str) -> list[Check]:
     """Run shell commands in the destination and judge exit code and output."""
     checks: list[Check] = []
     for command in commands:
-        run = str(command["run"])
-        cwd = dest / str(command.get("cwd", "."))
-        timeout = int(command.get("timeout", DEFAULT_TIMEOUT))
-        try:
-            proc = subprocess.run(  # noqa: S602  WHYNOT: request files are trusted input, like a Makefile.
-                run,
-                shell=True,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            checks.append(Check(name=f"{request_id}: run {run!r}", ok=False, detail=f"timeout after {timeout}s"))
-            continue
-        expected_exit = int(command.get("exit", 0))
-        output = (proc.stdout or "") + (proc.stderr or "")
-        checks.append(
-            Check(
-                name=f"run {run!r} exit {expected_exit}",
-                ok=proc.returncode == expected_exit,
-                detail=f"exit {proc.returncode}: {output.strip()[-OUTPUT_LIMIT:]}",
-            )
-        )
-        for key, stream in (("stdout_regex", proc.stdout or ""), ("stderr_regex", proc.stderr or "")):
-            if key in command:
-                pattern = str(command[key])
-                found = re.search(pattern, stream, re.MULTILINE) is not None
-                checks.append(
-                    Check(
-                        name=f"run {run!r} {key} /{pattern}/",
-                        ok=found,
-                        detail=(stream.strip()[-OUTPUT_LIMIT:] if not found else "found"),
-                    )
-                )
+        checks.extend(_judge_single_command(dest, command, request_id))
     return checks
 
 

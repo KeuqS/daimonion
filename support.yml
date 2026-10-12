@@ -16,10 +16,26 @@
 # none        Reserved for a future W4 declaration: no witness leaf is
 #             unsupported today, so the policy table has no `none` row.
 #
-# `why` on every entry is the measured evidence for its tier.
-# tests/test_support_matrix.py checks the `supported` rows against the
-# witness ledger (tests/matrix/witnesses.json) and docs/reference/support.md
-# against this file.
+# `demotion` states when a declared combination stops being carried: the
+# mechanical triggers that move a row down a tier (full -> best_effort ->
+# none) and the evidence each trigger is read from. It is prose, not a
+# second machine: tests/test_support_matrix.py reads only `supported` /
+# `best_effort` / `tier_policy`, and the tier_policy `none` row already
+# names the exclusion mechanism (tests/matrix/witnesses.json `tier: none` +
+# `reason`). A row that meets a trigger is moved by a normal support.yml
+# edit (the generated docs follow through tools/gen_docs.py); this section
+# only says which moves are legitimate, so a removal is a policy
+# application rather than a silent scope cut.
+#
+# The triggers compose with the §40 layer-owner rule (GOVERNANCE.md "Layer
+# ownership"): an ownerless layer whose leaves drop to `experimental` in
+# docs/reference/support.md is trigger 1 firing with the reviewer named as
+# the missing piece. Regaining `supported` needs the same thing in both
+# places: a named owner who reviews that layer's PRs.
+#
+ # tests/test_support_matrix.py checks the `supported` rows against the
+ # witness ledger (tests/matrix/witnesses.json) and docs/reference/support.md
+ # against this file.
 
 supported:
   - combination: "project_type=library/gate=recommended"
@@ -107,3 +123,35 @@ tier_policy:
   - leaf_class: "(reserved) no class today"
     tier: none
     why: "every declared witness leaf has a recorded fast-tier run; tests/matrix/witnesses.json keeps the tier:none + reason hook as the future exclusion mechanism"
+
+demotion:
+  # A combination is demoted (full -> best_effort) or removed (any tier ->
+  # none, via the tier:none + reason hook above) when ALL of a trigger's
+  # conditions hold at the same time. Each condition names the evidence it
+  # is read from, so applying a trigger is a lookup, not a judgement call.
+  # Scale background: 618 tracked files, 55 test modules, 272 witness
+  # leaves; every surviving answer multiplies the render matrix, so an
+  # option nobody exercises still costs ruff/lint attention on every
+  # template edit.
+  - trigger: "ownerless layer"
+    moves: "supported -> best_effort (the row keeps rendering; CI stops executing it)"
+    when:
+      - "no CODEOWNERS row names an owner for the layer besides the maintainer (evidence: .github/CODEOWNERS)"
+      - "the maintainer has stopped reviewing that layer's area (evidence: GOVERNANCE.md 'Ownerless-layer rule')"
+    restore: "a named owner who reviews that layer's PRs (evidence: the CODEOWNERS row); the support.yml row moves back with the same edit"
+    why: "this is the §40 rule restated as a trigger: 'supported but not staffed' is honest only while the maintainer still reviews; otherwise the tier overclaims"
+  - trigger: "no execution evidence"
+    moves: "supported -> best_effort, or best_effort -> none for an answer nobody renders"
+    when:
+      - "no witness leaf selects the combination (evidence: tests/matrix/witnesses.json has no leaf with these answers)"
+      - "no preset ships it (evidence: presets/*.yml)"
+      - "no full-tier run has ever recorded it (evidence: the witness ledger)"
+    restore: "a witness leaf plus the execution run that earns the tier back"
+    why: "render-only today: task_runner make | poe | invoke | duty, package_manager poetry, log_library loguru | picologging and type_checker ty are all best_effort on exactly these grounds -- no witness leaf selects one, and the executed sample covers only the recommended defaults"
+  - trigger: "rehearsal gap"
+    moves: "supported -> best_effort until the gap is closed and recorded"
+    when:
+      - "the weekly update rehearsal (docs/data/update-rehearsal.json) skips or fails the leaves carrying the combination for two consecutive runs (evidence: the committed report)"
+      - "no follow-up commit records the fix or the explicit acceptance (evidence: the 'Update rehearsal' section of docs/reference/support.md)"
+    restore: "a green rehearsal run that covers the leaves again"
+    why: "GOVERNANCE.md 'Release discipline': generated-project claims must not exceed what the rehearsal executed; a path the rehearsal no longer covers keeps rendering but stops promising updates land cleanly"

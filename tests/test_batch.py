@@ -270,7 +270,7 @@ def test_jobs_change_only_the_schedule(tmp_path: Path):
     """
     path = write_lines(
         tmp_path,
-        {"id": "slow", "answers": _script_answers(), "commands": [{"run": "sleep 0.8"}]},
+        {"id": "slow", "answers": _script_answers(), "commands": [{"run": "sleep 0.3"}]},
         {"id": "broken", "answers": _script_answers(), "expect": {"files": ["not-rendered.txt"]}},
         {"id": "quick", "answers": _script_answers()},
     )[0]

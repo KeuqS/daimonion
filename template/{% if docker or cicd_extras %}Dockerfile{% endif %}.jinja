@@ -16,7 +16,7 @@ FROM ghcr.io/diamondlightsource/ubuntu-devcontainer:resolute AS developer
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     graphviz \
     && apt-get dist-clean{% if docker %}
-{% if package_manager == "uv" %}
+{% if is_uv %}
 # The build stage installs the context into the venv
 FROM developer AS build
 

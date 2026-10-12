@@ -237,6 +237,31 @@ def load_raw_questions(config: Path | None = None) -> tuple[dict[str, dict[str, 
     return questions, list(questions)
 
 
+def questions_by_name(config: Path | None = None) -> dict[str, Question]:
+    """The questionnaire keyed by question name, in ask order."""
+    questions, _settings = load_questions(config)
+    return {question.name: question for question in questions}
+
+
+def counts(config: Path | None = None) -> tuple[int, int, list[str]]:
+    """(question count, asked-question count, sorted setting names), in one parse."""
+    questions, settings = load_questions(config)
+    return len(questions), sum(1 for question in questions if not question.internal), sorted(settings)
+
+
+def schema_entries(*, asked_only: bool = False, config: Path | None = None) -> list[dict[str, Any]]:
+    """The questions a proposal may answer, as serializable records in ask order.
+
+    The same records `load_questions` parses -- the one parser, no second
+    loader. `asked_only=True` drops the `when: false` derived variables an
+    answer set must never name; the default keeps them, marked
+    `internal: true`, so a client can tell "unknown question" from "derived
+    variable you must not answer".
+    """
+    questions, _settings = load_questions(config)
+    return [question.as_dict() for question in questions if not (asked_only and question.internal)]
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read the questionnaire as data.")
     parser.add_argument("--config", type=Path, default=CONFIG, help="copier.yml to read")

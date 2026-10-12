@@ -1,0 +1,43 @@
+{# Weekly dependency audit: the on-purpose one-off from _tasks.jinja (the
+   `audit` task runs pip-audit, which needs the network, so it stays out of
+   `type-check`/`check` — both must run offline). Dispatched through the
+   project's task runner via the shared _tasks.yml reusable workflow, the
+   same dispatch ci.yml.jinja uses for lint, so no runner installs its own
+   steps here. The `audit` task exists only outside ros2 at
+   recommended/full strictness (quality_tasks in _tasks.jinja); other
+   configurations keep a valid workflow that skips with a notice instead of
+   calling a task that does not exist — the _hygiene.yml self-skip idiom. #}
+{% raw %}name: Audit
+
+# Weekly dependency audit (`pip-audit` over the lockfile) plus a manual
+# trigger. PR CI deliberately does NOT run it: `check` must work offline,
+# so this schedule is the only recurring verification the audit task gets.
+# Results surface as a red scheduled run, not an issue: the fix is a
+# lockfile bump, reviewed like any other dependency update.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly audit, Sunday 04:00 UTC.
+    - cron: "0 4 * * SUN"
+
+jobs:
+{% endraw -%}
+{% if not ros2_pkg and not strictness_minimal -%}
+{% raw %}  audit:
+    uses: ./.github/workflows/_tasks.yml
+    with:
+{% endraw %}      task_runner: {{ task_runner_effective }}
+      task: audit
+{% else -%}
+{% raw %}  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Audit skipped (no audit task in this configuration)
+        run: "echo '::notice::audit skipped: only non-ros2 projects at recommended or full strictness have an audit task'"
+{% endraw -%}
+{% endif -%}

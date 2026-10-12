@@ -6,6 +6,7 @@ projects are checked with."""
 import json
 import re
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -173,6 +174,82 @@ def test_template_no_ci(tmp_path: Path):
     assert not (tmp_path / ".github" / "workflows").exists()
     # GitHub-specific files are still generated
     assert (tmp_path / ".github" / "actionlint.yaml").exists()
+
+
+def _action_names(workflow: dict) -> set[str]:
+    """Third-party `uses:` owners of one parsed workflow (renovate's view)."""
+    names = set()
+    for job in workflow.get("jobs", {}).values():
+        for step in job.get("steps", []):
+            action = step.get("uses")
+            if action and not action.startswith("./"):
+                names.add(action.split("@")[0].removeprefix("docker://"))
+    return names
+
+
+def _assert_update_workflow_shape(text: str) -> dict:
+    """The actionlint contract a generated template-update.yml must satisfy."""
+    assert "{% if" not in text and "{%" not in text.replace("{% raw %}", ""), (
+        "unrendered Jinja left in template-update.yml"
+    )
+    workflow = yaml.safe_load(text)
+    assert "permissions" in workflow, "top-level permissions block required"
+    assert workflow.get("permissions") == {"contents": "read"}, (
+        f"top-level must be read-only, got {workflow.get('permissions')}"
+    )
+    assert "timeout-minutes" not in workflow, "timeout-minutes belongs on jobs, not the workflow"
+    assert "concurrency" in workflow, "concurrency group required (no overlapping trials)"
+    job = workflow["jobs"]["update"]
+    assert job.get("timeout-minutes"), "the update job needs timeout-minutes"
+    assert job.get("permissions") == {"contents": "write", "pull-requests": "write"}, (
+        f"minimal PR scopes required, got {job.get('permissions')}"
+    )
+    # PyYAML reads YAML 1.1, where `on:` parses as boolean True.
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers is not None, "the workflow needs an `on:` block"
+    assert "workflow_dispatch" in triggers, "manual dispatch required"
+    assert "schedule" in triggers, "weekly schedule required"
+    runs = " ".join(str(step.get("run", "")) for step in job["steps"])
+    assert "copier update" in runs, "the trial must run copier update"
+    assert "gh pr create" in runs, "the trial must open its PR with gh"
+    assert "TEMPLATE_UPDATE" in text, "the opt-in guard must be present"
+    assert "persist-credentials: false" in text, "checkout must not persist credentials"
+    sha_re = re.compile(r"^[0-9a-f]{40}$")
+    for step in job["steps"]:
+        uses = step.get("uses", "")
+        if uses and not uses.startswith("./"):
+            _owner, _, ref = uses.partition("@")
+            assert sha_re.match(ref), f"uses {uses!r} must be SHA-pinned"
+    return workflow
+
+
+def test_template_update_workflow_ships_on_github_actions(tmp_path: Path):
+    copy_project(tmp_path)
+    path = tmp_path / ".github" / "workflows" / "template-update.yml"
+    assert path.exists(), "github_actions must ship the update workflow"
+    workflow = _assert_update_workflow_shape(path.read_text())
+    # The update workflow's actions stay inside renovate's tracked set, so
+    # digest pinning keeps moving them (the equality the parametrized
+    # contract below holds for the whole workflows dir).
+    config_actions: set[str] = set()
+    for rule in json.loads((tmp_path / "renovate.json").read_text())["packageRules"]:
+        if rule.get("matchManagers") == ["github-actions"]:
+            config_actions.update(rule.get("matchPackageNames", []))
+    assert _action_names(workflow) <= config_actions, (
+        f"update workflow uses actions renovate does not track: {_action_names(workflow) - config_actions}"
+    )
+    readme = (tmp_path / "README.md").read_text()
+    assert "TEMPLATE_UPDATE" in readme, "README must document the opt-in variable"
+    assert "never merges itself" in readme, "README must say the PR is never auto-merged"
+
+
+def test_template_update_workflow_absent_without_github_actions(tmp_path: Path):
+    no_ci = tmp_path / "no-ci"
+    copy_project(no_ci, ci_provider="none")
+    assert not (no_ci / ".github" / "workflows" / "template-update.yml").exists()
+    gitlab = tmp_path / "gitlab"
+    copy_project(gitlab, git_platform="gitlab.com", gitlab_group="mygroup")
+    assert not (gitlab / ".github").exists()
 
 
 def test_template_license_check_task(tmp_path: Path):
@@ -703,3 +780,155 @@ def test_python_versions_match(tmp_path: Path):
     assert pyproject_toml["project"]["requires-python"] == f">={min_version}"
     for version in python_versions:
         assert f"Programming Language :: Python :: {version}" in pyproject_toml["project"]["classifiers"]
+
+
+def _audit_workflow_shape(text: str) -> dict:
+    """The contract a generated audit.yml must satisfy (mirrors the
+    template-update shape assertion above)."""
+    assert "{%" not in text.replace("{% raw %}", ""), "unrendered Jinja left in audit.yml"
+    workflow = yaml.safe_load(text)
+    assert workflow.get("permissions") == {"contents": "read"}, (
+        f"top-level must be read-only, got {workflow.get('permissions')}"
+    )
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers is not None, "the workflow needs an `on:` block"
+    assert "workflow_dispatch" in triggers, "manual dispatch required"
+    assert triggers["schedule"] == [{"cron": "0 4 * * SUN"}], (
+        f"weekly Sunday 04:00 UTC schedule required, got {triggers.get('schedule')}"
+    )
+    assert "audit" in workflow["jobs"], "audit job missing"
+    return workflow
+
+
+def test_audit_workflow_dispatches_through_the_task_runner(tmp_path: Path):
+    """The default render ships a weekly audit that runs the `audit` task
+    through the project's task runner (the ci.yml dispatch pattern)."""
+    copy_project(tmp_path, project_type="cli")
+    path = tmp_path / ".github" / "workflows" / "audit.yml"
+    assert path.exists(), "github_actions must ship the audit workflow"
+    workflow = _audit_workflow_shape(path.read_text())
+    job = workflow["jobs"]["audit"]
+    assert job["uses"] == "./.github/workflows/_tasks.yml", (
+        "the audit must dispatch through the shared _tasks.yml reusable workflow"
+    )
+    assert job["with"]["task"] == "audit", "the reusable call must run the audit task"
+    assert job["with"]["task_runner"] == "task", "the reusable call must use this render's task runner"
+    assert "schedule" in str(workflow.get("on", workflow.get(True)))
+
+
+def test_audit_workflow_skips_without_an_audit_task(tmp_path: Path):
+    """Configurations without an `audit` task (ros2, none/basic strictness)
+    keep a valid workflow that skips with a notice instead of calling a task
+    that does not exist."""
+    bare = tmp_path / "bare"
+    copy_project(bare, project_type="cli", strictness="none")
+    workflow = _audit_workflow_shape((bare / ".github" / "workflows" / "audit.yml").read_text())
+    runs = " ".join(str(step.get("run", "")) for step in workflow["jobs"]["audit"]["steps"])
+    assert "::notice::" in runs, "the skip branch must explain itself with a notice"
+    assert "_tasks.yml" not in (bare / ".github" / "workflows" / "audit.yml").read_text()
+
+    ros2 = tmp_path / "ros2"
+    copy_project(ros2, project_type="ros2")
+    workflow = _audit_workflow_shape((ros2 / ".github" / "workflows" / "audit.yml").read_text())
+    runs = " ".join(str(step.get("run", "")) for step in workflow["jobs"]["audit"]["steps"])
+    assert "::notice::" in runs, "the ros2 branch must skip: _tasks.yml does not ship there"
+
+
+def test_audit_workflow_absent_without_github_actions(tmp_path: Path):
+    """ci_provider=none and GitLab renders ship no audit workflow (the
+    workflows directory itself is github_actions-only)."""
+    no_ci = tmp_path / "no-ci"
+    copy_project(no_ci, ci_provider="none")
+    assert not (no_ci / ".github" / "workflows" / "audit.yml").exists()
+    gitlab = tmp_path / "gitlab"
+    copy_project(gitlab, git_platform="gitlab.com", gitlab_group="mygroup")
+    assert not (gitlab / ".github").exists()
+
+
+@pytest.mark.parametrize(
+    ("answers", "present", "absent"),
+    [
+        ({"package_manager": "uv"}, "uv sync", "poetry install"),
+        ({"package_manager": "poetry"}, "poetry install", "uv sync"),
+        ({"package_manager": "pixi", "task_runner_pixi": "pixi"}, "pixi install", "uv sync"),
+    ],
+)
+def test_installation_tutorial_follows_the_package_manager(
+    tmp_path: Path, answers: dict[str, Any], present: str, absent: str
+):
+    """docs/tutorials/installation.md renders the branch of its own package
+    manager (the README Development-setup branches), not a venv+pip hardcode."""
+    copy_project(tmp_path, project_type="cli", **answers)
+    text = (tmp_path / "docs" / "tutorials" / "installation.md").read_text()
+    assert present in text, f"expected the {answers['package_manager']} branch in installation.md"
+    assert absent not in text, f"the {answers['package_manager']} render must not carry {absent!r}"
+    assert "python3 -m venv" not in text, "the venv hardcode is replaced by the package-manager branches"
+
+
+def test_readme_first_run_uses_the_task_runner(tmp_path: Path):
+    """The README First-run block drives lint/test/check through the render's
+    task runner (pixi renders spell the native `pixi run -e dev` prefix)."""
+    copy_project(tmp_path, project_type="cli")
+    readme = (tmp_path / "README.md").read_text()
+    assert "### First run" in readme
+    first_run = readme.split("### First run")[1].split("###")[0]
+    assert "task lint" in first_run and "task test" in first_run and "task check" in first_run
+
+    pixi = tmp_path / "pixi"
+    copy_project(pixi, project_type="cli", package_manager="pixi", task_runner_pixi="pixi")
+    first_run = (pixi / "README.md").read_text().split("### First run")[1].split("###")[0]
+    assert "pixi run -e dev lint" in first_run, "pixi renders must use the native task prefix"
+
+
+def test_readme_hides_type_check_below_recommended_strictness(tmp_path: Path):
+    """At none/basic strictness the runner table must not list `type-check`
+    (the task does not exist there); recommended keeps it."""
+    bare = tmp_path / "bare"
+    copy_project(bare, project_type="cli", strictness="none")
+    table = (bare / "README.md").read_text().split("### Lint, type-check and test")[1].split("### First run")[0]
+    assert "type-check" not in table, "none strictness ships no type-check task, so the table must not list it"
+
+    recommended = tmp_path / "recommended"
+    copy_project(recommended, project_type="cli")
+    table = (recommended / "README.md").read_text().split("### Lint, type-check and test")[1].split("### First run")[0]
+    assert "task type-check" in table, "recommended strictness keeps the type-check row"
+
+
+def test_derived_toolchain_flags_match_the_answers_they_rename(tmp_path: Path):
+    """The _internal.yml shorthands resolve exactly like the literals they
+    replace (the byte-identical-render precondition for the R1 renames)."""
+    from copier._main import Worker
+    from tools.answers import BASE  # noqa: E402
+
+    with tempfile.TemporaryDirectory() as dst:
+        worker = Worker(src_path=str(TOP), dst_path=Path(dst), defaults=True, quiet=True, vcs_ref="HEAD")
+        cases = [
+            (
+                {"use_recommended_toolchain": False, "package_manager": "uv"},
+                {"is_uv": True, "is_poetry": False, "is_pixi": False, "runner_just": True, "runner_task": False},
+            ),
+            (
+                {"use_recommended_toolchain": False, "package_manager": "poetry"},
+                {"is_uv": False, "is_poetry": True, "is_pixi": False, "runner_just": True, "runner_task": False},
+            ),
+            (
+                {"use_recommended_toolchain": False, "package_manager": "pixi", "task_runner_pixi": "pixi"},
+                {"is_uv": False, "is_poetry": False, "is_pixi": True, "runner_just": False, "runner_task": False},
+            ),
+            (
+                {"use_recommended_toolchain": False, "package_manager": "uv", "task_runner": "task"},
+                {"is_uv": True, "is_poetry": False, "is_pixi": False, "runner_just": False, "runner_task": True},
+            ),
+        ]
+        for answers, expected in cases:
+            worker.data = {**BASE, "project_type": "cli", **answers}
+            worker._ask()  # noqa: SLF001  WHYNOT: copier exposes no other way to run the questionnaire pass.
+            context = worker._render_context()  # noqa: SLF001  WHYNOT: same oracle as tests/test_example_layers.py.
+            for flag, value in expected.items():
+                assert context.get(flag) is value, f"{answers}: {flag} resolved to {context.get(flag)!r}"
+            assert context.get("strictness_minimal") is False, "default answers ride recommended strictness"
+
+        worker.data = {**BASE, "project_type": "cli", "use_recommended_quality": False, "strictness": "none"}
+        worker._ask()  # noqa: SLF001  WHYNOT: same oracle as above.
+        context = worker._render_context()  # noqa: SLF001  WHYNOT: same oracle as above.
+        assert context.get("strictness_minimal") is True

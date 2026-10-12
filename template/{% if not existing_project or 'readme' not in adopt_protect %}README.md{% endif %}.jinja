@@ -1,4 +1,4 @@
-{% import "_shared/macros.jinja" as m with context -%}
+{% import "_shared/macros.jinja" as m with context %}{% import "_tasks.jinja" as _t with context -%}
 # {{ package_name }}
 
 *{{ description }}*
@@ -9,7 +9,7 @@
 {% if not ros2_pkg %}[![Coverage](https://codecov.io/gh/{{github_org}}/{{repo_name}}/branch/main/graph/badge.svg)](https://codecov.io/gh/{{github_org}}/{{repo_name}})
 {% endif %}{% if pypi %}[![PyPI](https://img.shields.io/pypi/v/{{distribution_name}}.svg?logo=pypi&logoColor=white)](https://pypi.org/project/{{distribution_name}})
 {% endif %}[![License](https://img.shields.io/badge/License-{{ license_effective | replace("-", "--") }}-4B32C3.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-{{ m.python_version() if ros2_pkg else ('3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14' if package_manager == 'uv' else m.python_version()) }}-3776AB.svg?logo=python&logoColor=white)]({{repo_url}})
+[![Python](https://img.shields.io/badge/Python-{{ m.python_version() if ros2_pkg else ('3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14' if is_uv else m.python_version()) }}-3776AB.svg?logo=python&logoColor=white)]({{repo_url}})
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Copier](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/copier-org/copier/master/img/badge/badge-black.json)](https://github.com/copier-org/copier)
 {% if docs %}[![Documentation](https://img.shields.io/badge/docs-{{docs_url}}-8A2BE2?logo=gitbook&logoColor=white)]({{docs_url}})
@@ -70,8 +70,8 @@ sudo apt install python3-colcon-common-extensions python3-rosdep
 sudo rosdep init && rosdep update
 
 # Install the dev tooling (ruff, pytest, typos, ...)
-{% if package_manager == "uv" %}uv sync
-{% elif package_manager == "poetry" %}poetry install
+{% if is_uv %}uv sync
+{% elif is_poetry %}poetry install
 {% endif %}
 # Build this package
 rosdep install --from-paths . --ignore-src -r -y
@@ -98,8 +98,8 @@ nothing to pip-install. Connect the device over USB and deploy with
 
 ```sh
 # Install the dev tooling (ruff, pytest, basedpyright, mpremote, ...)
-{% if package_manager == "uv" %}uv sync
-{% elif package_manager == "poetry" %}poetry install
+{% if is_uv %}uv sync
+{% elif is_poetry %}poetry install
 {% else %}pixi install
 {% endif %}
 # Install the MicroPython type stubs into typings/ (for type-checking)
@@ -113,8 +113,8 @@ uv run pip install -r requirements-dev.txt --target typings
 {% elif online_judge %}```sh
 {% if kaggle %}pip install -e ".[experiment]"   # install the project + experiment extras
 {% else %}# code-submission workspace: just the dev toolchain
-{% if package_manager == "uv" %}uv sync
-{% elif package_manager == "poetry" %}poetry install
+{% if is_uv %}uv sync
+{% elif is_poetry %}poetry install
 {% else %}pixi install
 {% endif %}
 {% endif %}
@@ -239,8 +239,8 @@ downloaded cases are not committed.
 
 {% endif %}
 {% else %}```sh
-{% if package_manager == "uv" %}pip install {{distribution_name}}
-{% elif package_manager == "poetry" %}poetry add {{distribution_name}}
+{% if is_uv %}pip install {{distribution_name}}
+{% elif is_poetry %}poetry add {{distribution_name}}
 {% else %}# pixi project - the environment is managed by pixi
 pixi install
 {% endif %}
@@ -292,10 +292,10 @@ sample blink with your own firmware logic.
 competition. The pipeline is driven by the task runner:
 
 ```sh
-{% if task_runner_effective == 'task' %}task dataset      # build features from src/input
+{% if runner_task %}task dataset      # build features from src/input
 task train        # train a model (src/models)
 task predict      # write a submission to src/output
-{% elif task_runner_effective == 'just' %}just dataset
+{% elif runner_just %}just dataset
 just train
 just predict
 {% elif task_runner_effective == 'make' %}make dataset
@@ -814,8 +814,8 @@ Clone the repo into a colcon workspace (or build in place as above), then:
 
 ```sh
 source /opt/ros/{{ ros_distro }}/setup.bash
-{% if package_manager == "uv" %}uv sync                       # dev tooling (ruff/pytest/typos)
-{% elif package_manager == "poetry" %}poetry install
+{% if is_uv %}uv sync                       # dev tooling (ruff/pytest/typos)
+{% elif is_poetry %}poetry install
 {% endif %}
 rosdep install --from-paths . --ignore-src -r -y   # resolve package.xml deps
 colcon build --symlink-install --packages-select {{ package_name }}
@@ -832,11 +832,11 @@ The `{{ task_runner_effective }}` task runner drives the common commands:
 pixi run build          # colcon build --symlink-install
 pixi run test           # colcon test + colcon test-result
 pixi run check          # lint + build + test
-{% elif task_runner_effective == 'task' %}task lint           # ruff format --check + ruff check
+{% elif runner_task %}task lint           # ruff format --check + ruff check
 task build          # colcon build --symlink-install
 task test           # colcon test + colcon test-result
 task check          # lint + build + test
-{% elif task_runner_effective == 'just' %}just lint
+{% elif runner_just %}just lint
 just build
 just test
 just check
@@ -847,13 +847,13 @@ make check
 {% endif %}
 ```
 {% else %}
-Prerequisites: Python {{ '3.11 or later' if package_manager == 'uv' else '3.11' }}{% if package_manager == 'uv' %} and [uv](https://docs.astral.sh/uv/){% elif package_manager == 'pixi' %} and [pixi](https://pixi.sh){% else %} and [poetry](https://python-poetry.org){% endif %}.
+Prerequisites: Python {{ '3.11 or later' if is_uv else '3.11' }}{% if is_uv %} and [uv](https://docs.astral.sh/uv/){% elif is_pixi %} and [pixi](https://pixi.sh){% else %} and [poetry](https://python-poetry.org){% endif %}.
 
 ```sh
 git clone {{repo_url}}.git
 cd {{repo_name}}
-{% if package_manager == "uv" %}uv sync                      # create .venv and install everything (incl. dev deps)
-{% elif package_manager == "poetry" %}poetry install                # create .venv and install everything (incl. dev deps)
+{% if is_uv %}uv sync                      # create .venv and install everything (incl. dev deps)
+{% elif is_poetry %}poetry install                # create .venv and install everything (incl. dev deps)
 {% else %}pixi install                  # create the pixi environment (dev feature included)
 {% endif %}
 ```
@@ -903,16 +903,16 @@ See [Run in a container]({% if docs %}{{docs_url}}/how-to/run-container){% else 
 
 ### Lint, type-check and test
 
-The project uses {% if task_runner_effective == 'task' %}[Task](https://taskfile.dev){% elif task_runner_effective == 'just' %}[Just](https://just.systems){% elif task_runner_effective == 'poe' %}[poethepoet](https://github.com/nat-n/poethepoet){% elif task_runner_effective == 'make' %}GNU Make{% elif task_runner_effective == 'invoke' %}[pyinvoke](https://www.pyinvoke.org){% elif task_runner_effective == 'duty' %}[duty](https://github.com/pawamoy/duty){% else %}pixi's native tasks{% endif %} to drive the common commands:
+The project uses {% if runner_task %}[Task](https://taskfile.dev){% elif runner_just %}[Just](https://just.systems){% elif task_runner_effective == 'poe' %}[poethepoet](https://github.com/nat-n/poethepoet){% elif task_runner_effective == 'make' %}GNU Make{% elif task_runner_effective == 'invoke' %}[pyinvoke](https://www.pyinvoke.org){% elif task_runner_effective == 'duty' %}[duty](https://github.com/pawamoy/duty){% else %}pixi's native tasks{% endif %} to drive the common commands:
 
 ```sh
-{% if task_runner_effective == 'task' %}task lint           # ruff format --check + ruff check
+{% if runner_task %}task lint           # ruff format --check + ruff check
 task fix            # auto-fix formatting and lint
-task type-check     # type checker + static analysis{% if strictness in ['recommended', 'full'] %}
-task test           # pytest
+{% if not strictness_minimal %}task type-check     # type checker + static analysis
+{% endif %}task test           # pytest
 task docs           # build the documentation site
-task check          # everything above{% endif %}
-{% elif task_runner_effective == 'just' %}just lint
+task check          # everything above
+{% elif runner_just %}just lint
 just test
 just check
 {% elif task_runner_effective == 'make' %}make lint
@@ -933,16 +933,26 @@ pixi run -e dev check
 {% endif %}
 ```
 
+### First run
+
+Verify the toolchain end to end with the default quality gate:
+
+```sh
+{{ _t.agent_prefix }} lint
+{{ _t.agent_prefix }} test
+{{ _t.agent_prefix }} check
+```
+
 {% if micropython_pkg %}
 For a MicroPython project the same runner also drives the device workflow:
 
 ```sh
-{% if task_runner_effective == 'task' %}task stubs           # install micropython-{{ micropython_port }}-stubs into typings/
+{% if runner_task %}task stubs           # install micropython-{{ micropython_port }}-stubs into typings/
 task deploy         # copy firmware/ to the device root and reset it
 task run            # run firmware/main.py on the device without copying
 task repl           # open a REPL on the connected device
 task freeze         # build a distributable firmware image (Docker)
-{% elif task_runner_effective == 'just' %}just stubs
+{% elif runner_just %}just stubs
 just deploy
 just run
 just repl
@@ -1005,6 +1015,29 @@ Resolve any conflicts, run `{{ task_runner_effective }} fix` and
 `{{ task_runner_effective }} check`, then commit. See the template's
 [adopt/update guide](https://constitutivetemplates.github.io/daimonion/main/tutorials/adopt-existing.html)
 for the conflict-resolution workflow.
+{% if is_github %}
+
+### Weekly automatic update PRs (opt-in)
+
+GitHub Actions ships a weekly trial (`.github/workflows/template-update.yml`,
+Monday 04:00 UTC): it runs `copier update` on a `daimonion/update-<ref>`
+branch and opens a pull request summarising the diff, the
+`.copier-answers.yml` `_commit` change, and the `.daimonion-manifest.yml`
+comparison to review.
+
+To enable it, set the `TEMPLATE_UPDATE` repository variable to `1`
+(Settings > Variables > Actions). Until then every run skips with success,
+so the workflow changes nothing until you ask for it.
+
+What it does and does not do:
+
+- It never merges itself: read the diff, let the regular CI on the PR run,
+  then merge by hand if the diff is what you want.
+- A conflict keeps the branch and is reported in the PR body; the run stays
+  green, because deciding is the point, not failing.
+- Least privilege: the workflow is read-only except the one job that pushes
+  the trial branch and opens the PR (`contents: write`, `pull-requests: write`).
+{% endif %}
 {% if fair %}
 
 ## 📝 How to Cite

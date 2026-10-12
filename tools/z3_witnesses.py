@@ -297,10 +297,8 @@ def _check_includes(questions: dict[str, dict]) -> None:
         raise SystemExit(msg)
 
 
-def _build_space(questions: dict[str, dict], pt_domain: list[str], oj_categories: list[str]) -> Space:
-    """Assert the leaf-space restrictions on top of the questionnaire's variables."""
-    gates = {name: z3.Bool(name) for name in questions if name.startswith(GATE_PREFIX)}
-    includes = {name: z3.Bool(name) for name in INCLUDE_LAYERS}
+def _validate_gate_projections(questions: dict[str, dict], gates: dict[str, z3.BoolRef]) -> None:
+    """Validate that every gate in the questionnaire has a known projection."""
     for name in (*UNCONDITIONAL_GATES, *PROJECTED_GATES, *INCLUDE_LAYERS):
         if name not in questions:
             msg = f"{name!r} is declared in this tool but gone from the questionnaire; update the leaf space"
@@ -316,65 +314,124 @@ def _build_space(questions: dict[str, dict], pt_domain: list[str], oj_categories
             raise SystemExit(msg)
     _check_includes(questions)
 
-    index = {name: position for position, name in enumerate(pt_domain)}
-    pt = z3.Int("project_type")
-    oj_category = z3.Int("oj_category")
-    oj_kind = z3.Int("oj_kind")
-    oj_kinds = {category: list(INVARIANTS.vocabulary.oj_kind_choices[category]) for category in oj_categories}
 
-    # Derived internals, inlined from questions/_internal.yml: combinable,
-    # has_web_api, has_data_science and kaggle (the four the leaf space reads).
-    kaggle_category = oj_categories.index("data_science")
-    kaggle = z3.And(
-        pt == index["online_judge"],
-        oj_category == kaggle_category,
-        oj_kind == oj_kinds["data_science"].index("kaggle"),
+@dataclass(frozen=True)
+class _LeafCoordinates:
+    """Z3 variables and domain tables indexing the leaf space's coordinate axes."""
+
+    pt: z3.ArithRef
+    oj_category: z3.ArithRef
+    oj_kind: z3.ArithRef
+    index: dict[str, int]
+    pt_domain: list[str]
+    oj_categories: list[str]
+    oj_kinds: dict[str, list[str]]
+
+
+@dataclass(frozen=True)
+class _DerivedInternals:
+    """The 4 derived internal variables projected into the leaf space."""
+
+    kaggle: z3.BoolRef
+    combinable: z3.BoolRef
+    has_web_api: z3.BoolRef
+    has_data_science: z3.BoolRef
+
+
+def _model_derived_internals(
+    coords: _LeafCoordinates,
+    includes: dict[str, z3.BoolRef],
+) -> _DerivedInternals:
+    """Model the 4 derived internals read by the leaf space: kaggle, combinable, has_web_api, has_data_science."""
+    kaggle_category = coords.oj_categories.index("data_science")
+    kaggle = _bool(
+        z3.And(
+            coords.pt == coords.index["online_judge"],
+            coords.oj_category == kaggle_category,
+            coords.oj_kind == coords.oj_kinds["data_science"].index("kaggle"),
+        )
     )
-    combinable = z3.Or(*(pt == index[name] for name in ("library", "cli", "web_api", "data_science")), kaggle)
-    has_web_api = z3.Or(pt == index["web_api"], z3.And(includes["include_web_api"], combinable))
-    has_data_science = z3.Or(pt == index["data_science"], z3.And(includes["include_data_science"], combinable))
+    combinable = _bool(
+        z3.Or(*(coords.pt == coords.index[name] for name in ("library", "cli", "web_api", "data_science")), kaggle)
+    )
+    has_web_api = _bool(z3.Or(coords.pt == coords.index["web_api"], z3.And(includes["include_web_api"], combinable)))
+    has_data_science = _bool(
+        z3.Or(coords.pt == coords.index["data_science"], z3.And(includes["include_data_science"], combinable))
+    )
+    return _DerivedInternals(kaggle, combinable, has_web_api, has_data_science)
 
-    # when-conditions projected onto the leaf space (fragment named per line).
+
+def _project_gate_when_conditions(
+    coords: _LeafCoordinates,
+    gates: dict[str, z3.BoolRef],
+    includes: dict[str, z3.BoolRef],
+    derived: _DerivedInternals,
+) -> dict[str, z3.BoolRef]:
+    """Project questionnaire when-conditions onto the leaf space."""
     asked: dict[str, z3.BoolRef] = dict.fromkeys(
         [*gates, *includes],
         z3.BoolVal(True),  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
     )
-    asked["use_recommended_agent"] = _bool(z3.Or(pt == index["library"], pt == index["cli"]))  # questions/_common_a.yml
-    asked["use_recommended_data_science"] = _bool(has_data_science)  # questions/data_science.yml
-    asked["use_recommended_web_api"] = _bool(has_web_api)  # questions/web_api.yml
-    asked["use_recommended_scraping"] = includes["include_scraping"]  # questions/_combo.yml
-    asked["use_recommended_bot"] = includes["include_bot"]  # questions/_combo.yml
-    asked["include_data_science"] = _bool(  # questions/_combo.yml
-        z3.Or(pt == index["library"], pt == index["cli"], pt == index["web_api"])
+    pt, idx = coords.pt, coords.index
+    asked["use_recommended_agent"] = _bool(z3.Or(pt == idx["library"], pt == idx["cli"]))
+    asked["use_recommended_data_science"] = _bool(derived.has_data_science)
+    asked["use_recommended_web_api"] = _bool(derived.has_web_api)
+    asked["use_recommended_scraping"] = includes["include_scraping"]
+    asked["use_recommended_bot"] = includes["include_bot"]
+    asked["include_data_science"] = _bool(z3.Or(pt == idx["library"], pt == idx["cli"], pt == idx["web_api"]))
+    asked["include_web_api"] = _bool(
+        z3.Or(pt == idx["library"], pt == idx["cli"], pt == idx["data_science"], derived.kaggle)
     )
-    asked["include_web_api"] = _bool(  # questions/_combo.yml
-        z3.Or(pt == index["library"], pt == index["cli"], pt == index["data_science"], kaggle)
-    )
-    asked["include_ctf"] = _bool(z3.Or(pt == index["library"], pt == index["cli"]))  # questions/_combo.yml
-    asked["include_scraping"] = _bool(pt == index["cli"])  # questions/_combo.yml
-    asked["include_bot"] = (
-        _bool(  # questions/_combo.yml: cli / web_api bases (the long-running layer rides an executable host)
-            z3.Or(pt == index["cli"], pt == index["web_api"])
-        )
-    )
-    # use_recommended_toolchain's when is only false for ros2 + a pixi package
-    # manager, and ros2_package_manager stays at its 'apt' default here, so it
-    # is always asked (questions/_common_a.yml:16-25).
+    asked["include_ctf"] = _bool(z3.Or(pt == idx["library"], pt == idx["cli"]))
+    asked["include_scraping"] = _bool(pt == idx["cli"])
+    asked["include_bot"] = _bool(z3.Or(pt == idx["cli"], pt == idx["web_api"]))
+    return asked
 
+
+def _create_leaf_solver(
+    coords: _LeafCoordinates,
+    gates: dict[str, z3.BoolRef],
+    includes: dict[str, z3.BoolRef],
+    asked: dict[str, z3.BoolRef],
+) -> z3.Solver:
+    """Build the Z3 solver enforcing domain bounds, at-most-one restrictions, and ask implications."""
     solver = z3.Solver()
-    solver.add(pt >= 0, pt < len(pt_domain))
-    solver.add(oj_category >= 0, oj_category < len(oj_categories))
+    solver.add(coords.pt >= 0, coords.pt < len(coords.pt_domain))
+    solver.add(coords.oj_category >= 0, coords.oj_category < len(coords.oj_categories))
     solver.add(z3.AtMost(*[z3.Not(gate) for gate in gates.values()], 1))
     solver.add(z3.AtMost(*includes.values(), 1))
     for name, gate in gates.items():
         solver.add(z3.Implies(z3.Not(gate), asked[name]))
     for name, include in includes.items():
         solver.add(z3.Implies(include, asked[name]))
-    for category, kinds in oj_kinds.items():
-        position = oj_categories.index(category)
-        asked_kind = z3.Or(*(oj_kind == i for i in range(len(kinds))))
-        solver.add(z3.Implies(z3.And(pt == index["online_judge"], oj_category == position), asked_kind))
-    solver.add(z3.Implies(pt != index["online_judge"], z3.And(oj_category == 0, oj_kind == 0)))
+    for category, kinds in coords.oj_kinds.items():
+        position = coords.oj_categories.index(category)
+        asked_kind = z3.Or(*(coords.oj_kind == i for i in range(len(kinds))))
+        solver.add(
+            z3.Implies(z3.And(coords.pt == coords.index["online_judge"], coords.oj_category == position), asked_kind)
+        )
+    solver.add(
+        z3.Implies(coords.pt != coords.index["online_judge"], z3.And(coords.oj_category == 0, coords.oj_kind == 0))
+    )
+    return solver
+
+
+def _build_space(questions: dict[str, dict], pt_domain: list[str], oj_categories: list[str]) -> Space:
+    """Assert the leaf-space restrictions on top of the questionnaire's variables."""
+    gates = {name: z3.Bool(name) for name in questions if name.startswith(GATE_PREFIX)}
+    includes = {name: z3.Bool(name) for name in INCLUDE_LAYERS}
+    _validate_gate_projections(questions, gates)
+
+    index = {name: position for position, name in enumerate(pt_domain)}
+    pt = z3.Int("project_type")
+    oj_category = z3.Int("oj_category")
+    oj_kind = z3.Int("oj_kind")
+    oj_kinds = {category: list(INVARIANTS.vocabulary.oj_kind_choices[category]) for category in oj_categories}
+
+    coords = _LeafCoordinates(pt, oj_category, oj_kind, index, pt_domain, oj_categories, oj_kinds)
+    derived = _model_derived_internals(coords, includes)
+    asked = _project_gate_when_conditions(coords, gates, includes, derived)
+    solver = _create_leaf_solver(coords, gates, includes, asked)
     return Space(solver, pt, oj_category, oj_kind, gates, includes, pt_domain, oj_categories, oj_kinds)
 
 
@@ -400,24 +457,19 @@ def _models(space: Space) -> list[dict[Any, Any]]:
     return found
 
 
-def _leaf(
-    questions: dict[str, dict],
-    space: Space,
-    values: dict[Any, Any],
-    domains: dict[str, list[str]],
-) -> Leaf:
-    """Map one Z3 model to its §C6 request (id, answers, expected invariants)."""
-    project_type = space.pt_domain[values[space.pt].as_long()]
-    off = [name for name, gate in space.gates.items() if not z3.is_true(values[gate])]
-    on = [name for name, include in space.includes.items() if z3.is_true(values[include])]
-    # The projected branch must also be satisfiable for the shared encoder --
-    # the questionnaire, not this tool, has the last word.
-    for name in [*off, *on]:
+def _verify_projected_branches(questions: dict[str, dict], branches: list[str], domains: dict[str, list[str]]) -> None:
+    """Verify each projected branch is satisfiable in the shared when_model encoder."""
+    for name in branches:
         when = questions[name].get("when")
         if isinstance(when, str) and not when_model.when_expr_satisfiable(when, domains, z3):
             msg = f"branch {name!r} projected as reachable but its when {when!r} is unsatisfiable"
             raise SystemExit(msg)
 
+
+def _build_leaf_answers_and_parts(
+    space: Space, values: dict[Any, Any], project_type: str, off: list[str], on: list[str]
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Build the answers dict, id path parts, and descriptive notes for one leaf."""
     parts = [f"project_type={project_type}", f"gate=off:{off[0]}" if off else "gate=recommended"]
     answers: dict[str, Any] = {**BASE, "project_type": project_type}
     if project_type == "online_judge":
@@ -437,6 +489,21 @@ def _leaf(
         note.append(f"one gate off: {off[0]} (its detail questions stay at their defaults)")
     if on:
         note.append(f"one include layer on: {on[0]}")
+    return answers, parts, note
+
+
+def _leaf(
+    questions: dict[str, dict],
+    space: Space,
+    values: dict[Any, Any],
+    domains: dict[str, list[str]],
+) -> Leaf:
+    """Map one Z3 model to its §C6 request (id, answers, expected invariants)."""
+    project_type = space.pt_domain[values[space.pt].as_long()]
+    off = [name for name, gate in space.gates.items() if not z3.is_true(values[gate])]
+    on = [name for name, include in space.includes.items() if z3.is_true(values[include])]
+    _verify_projected_branches(questions, [*off, *on], domains)
+    answers, parts, note = _build_leaf_answers_and_parts(space, values, project_type, off, on)
     return Leaf(
         id="/".join(parts),
         note=f"W3 Z3 witness: {'; '.join(note)}",
@@ -510,6 +577,32 @@ def _detail_variants(base_leaves: list[Leaf]) -> list[Leaf]:
     return variants
 
 
+def _leaf_domain_trait_variants(leaf: Leaf) -> list[Leaf]:
+    """Derive domain_traits variants hosted on this leaf."""
+    return [
+        Leaf(
+            id=f"{leaf.id}/domain={label}",
+            note=f"{leaf.note}; domain traits selected ({', '.join(choices)})",
+            answers={**leaf.answers, "domain_traits": choices},
+            expect=INVARIANTS.expect_for({**leaf.answers, "domain_traits": choices}),
+        )
+        for label, choices in DOMAIN_TRAIT_VARIANTS
+    ]
+
+
+def _leaf_distribution_variants(leaf: Leaf) -> list[Leaf]:
+    """Derive distribution variants hosted on this leaf."""
+    return [
+        Leaf(
+            id=f"{leaf.id}/distribution={label}",
+            note=f"{leaf.note}; distribution answered ({', '.join(choices)})",
+            answers={**leaf.answers, "distribution": choices},
+            expect=INVARIANTS.expect_for({**leaf.answers, "distribution": choices}),
+        )
+        for label, choices in DISTRIBUTION_VARIANTS
+    ]
+
+
 def _answer_axis_variants(base_leaves: list[Leaf]) -> list[Leaf]:
     """The `domain_traits` and `distribution` variants, on their declared hosts.
 
@@ -532,24 +625,8 @@ def _answer_axis_variants(base_leaves: list[Leaf]) -> list[Leaf]:
         raise SystemExit(msg)
     variants: list[Leaf] = []
     for leaf in hosts:
-        variants += [
-            Leaf(
-                id=f"{leaf.id}/domain={label}",
-                note=f"{leaf.note}; domain traits selected ({', '.join(choices)})",
-                answers={**leaf.answers, "domain_traits": choices},
-                expect=INVARIANTS.expect_for({**leaf.answers, "domain_traits": choices}),
-            )
-            for label, choices in DOMAIN_TRAIT_VARIANTS
-        ]
-        variants += [
-            Leaf(
-                id=f"{leaf.id}/distribution={label}",
-                note=f"{leaf.note}; distribution answered ({', '.join(choices)})",
-                answers={**leaf.answers, "distribution": choices},
-                expect=INVARIANTS.expect_for({**leaf.answers, "distribution": choices}),
-            )
-            for label, choices in DISTRIBUTION_VARIANTS
-        ]
+        variants.extend(_leaf_domain_trait_variants(leaf))
+        variants.extend(_leaf_distribution_variants(leaf))
     return variants
 
 
@@ -573,12 +650,7 @@ def build() -> tuple[dict[str, Any], list[Leaf]]:
     leaves = [_leaf(questions, space, values, domains) for values in _models(space)]
 
     leaves.extend(_derived_variants(leaves))
-
-    leaves.sort(key=lambda leaf: leaf.id)
-    ids = [leaf.id for leaf in leaves]
-    if len(ids) != len(set(ids)):
-        msg = f"leaf ids are not unique: {sorted(name for name in ids if ids.count(name) > 1)}"
-        raise SystemExit(msg)
+    _check_unique_ids(leaves)
 
     leaf_space = {
         "project_type": pt_domain,
@@ -604,6 +676,15 @@ def build() -> tuple[dict[str, Any], list[Leaf]]:
         "excluded": exclusions(),
     }
     return leaf_space, leaves
+
+
+def _check_unique_ids(leaves: list[Leaf]) -> None:
+    """Fail loudly when two leaves share an id (a variant re-hosted on itself)."""
+    leaves.sort(key=lambda leaf: leaf.id)
+    ids = [leaf.id for leaf in leaves]
+    if len(ids) != len(set(ids)):
+        msg = f"leaf ids are not unique: {sorted(name for name in ids if ids.count(name) > 1)}"
+        raise SystemExit(msg)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

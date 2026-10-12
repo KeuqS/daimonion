@@ -61,6 +61,7 @@ sys.path.insert(0, str(TOP))
 from copier._main import Worker  # noqa: E402
 from tools import batch  # noqa: E402
 from tools.render_inputs import context_fingerprint  # noqa: E402
+from tools.render_inputs import digest_bytes  # noqa: E402
 from tools.render_inputs import include_graph  # noqa: E402
 from tools.render_inputs import output_name  # noqa: E402
 from tools.render_inputs import watched_relative_paths  # noqa: E402
@@ -82,7 +83,8 @@ class State:
 
 
 def _sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    """The sha256 hex digest (the one byte-hash, shared with the rehearsal)."""
+    return digest_bytes(data)
 
 
 def _template_hashes(root: Path) -> dict[str, str]:
@@ -205,16 +207,8 @@ def _reverse_closure(changed: set[str], graph: dict[str, set[str]]) -> set[str]:
     return reach
 
 
-def compute_candidates(old: State, new: State) -> tuple[frozenset[str], dict[str, Any]]:  # noqa: C901 PLR0912  WHYNOT: each branch is one soundness rule of the four-way union; splitting would hide the union.
-    """The candidate set (an upper bound on affected leaves) and the semantic report.
-
-    Soundness: the four ways a rendered tree can change -- a condition outcome,
-    a value, a file's content, the file set -- are each an inclusion rule here,
-    and every rule errs toward inclusion. A leaf outside the candidate set has
-    an identical context, and none of the changed template bytes are reachable
-    from its rendered file set.
-    """
-    all_leaves = frozenset(old.leaves | new.leaves)
+def _detect_file_and_structural_changes(old: State, new: State) -> tuple[set[str], bool, bool]:
+    """Identify changed files and whether copier.yml or the path set changed."""
     changed_files = {
         path
         for path in set(old.file_hashes) | set(new.file_hashes)
@@ -222,8 +216,29 @@ def compute_candidates(old: State, new: State) -> tuple[frozenset[str], dict[str
     }
     copier_changed = "copier.yml" in changed_files
     path_set_changed = old.path_set != new.path_set
-    reasons: dict[str, list[str]] = {leaf_id: [] for leaf_id in sorted(all_leaves)}
+    return changed_files, copier_changed, path_set_changed
 
+
+def _compute_reachable_outputs(changed_files: set[str], old: State, new: State) -> set[str]:
+    """Compute output names reachable through template includes from changed files."""
+    graph: dict[str, set[str]] = {}
+    for source, targets in (*old.include_graph.items(), *new.include_graph.items()):
+        graph.setdefault(source, set()).update(targets)
+    reach = _reverse_closure({rel for rel in changed_files if rel != "copier.yml"}, graph)
+    return {output_name(rel) for rel in reach}
+
+
+def _evaluate_leaf_candidate_reasons(
+    old: State,
+    new: State,
+    changed_files: set[str],
+    reach_outputs: set[str],
+) -> dict[str, list[str]]:
+    """Check each leaf against the 4 soundness rules of candidate inclusion."""
+    all_leaves = frozenset(old.leaves | new.leaves)
+    copier_changed = "copier.yml" in changed_files
+    path_set_changed = old.path_set != new.path_set
+    reasons: dict[str, list[str]] = {leaf_id: [] for leaf_id in sorted(all_leaves)}
     if copier_changed:
         for why in reasons.values():
             why.append("copier.yml changed (settings and generation tasks are shared by every leaf)")
@@ -231,32 +246,28 @@ def compute_candidates(old: State, new: State) -> tuple[frozenset[str], dict[str
         for why in reasons.values():
             why.append("the template path set changed (files added or removed)")
 
-    graph: dict[str, set[str]] = {}
-    for source, targets in (*old.include_graph.items(), *new.include_graph.items()):
-        graph.setdefault(source, set()).update(targets)
-    reach = _reverse_closure({rel for rel in changed_files if rel != "copier.yml"}, graph)
-    reach_outputs = {output_name(rel) for rel in reach}
-
     for leaf_id, why in sorted(reasons.items()):
         if old.context_hashes.get(leaf_id) != new.context_hashes.get(leaf_id):
             why.append("the render context changed (an answer, an internal, or its derivation)")
         rendered = old.manifests.get(leaf_id)
         if rendered is None:
-            # no recorded render for this leaf: there is no evidence its output
-            # survived the change, so it renders (the first run of a new state
-            # is therefore total, and every later state inherits full manifests)
             if changed_files:
                 why.append("no render manifest: every changed byte could reach this leaf")
             continue
-        # suffix matching: a stripped template name ("fetcher.py" from a
-        # {{ pkg_dir }}-interpolated source) reaches any rendered file ending
-        # in it -- over-inclusive, which is the safe direction for candidacy.
         touched = sorted(
             key for key in rendered if any(key == name or key.endswith("/" + name) for name in reach_outputs)
         )
         if touched:
             why.append(f"changed template bytes reach its rendered files: {', '.join(touched[:4])}")
+    return reasons
 
+
+def compute_candidates(old: State, new: State) -> tuple[frozenset[str], dict[str, Any]]:
+    """The candidate set (an upper bound on affected leaves) and the semantic report."""
+    all_leaves = frozenset(old.leaves | new.leaves)
+    changed_files, copier_changed, path_set_changed = _detect_file_and_structural_changes(old, new)
+    reach_outputs = _compute_reachable_outputs(changed_files, old, new)
+    reasons = _evaluate_leaf_candidate_reasons(old, new, changed_files, reach_outputs)
     candidates = frozenset(leaf_id for leaf_id, why in reasons.items() if why)
     report = {
         "candidates": len(candidates),
@@ -270,13 +281,14 @@ def compute_candidates(old: State, new: State) -> tuple[frozenset[str], dict[str
 
 
 def _normalize(data: bytes, rel: str) -> bytes:
-    """File bytes, with the answers file's per-render stamps removed.
+    """File bytes, with the render record's per-render stamps removed.
 
-    batch.strip_render_stamps is the one normalization (RENDER_STAMPS the one
-    stamp list, shared with the MCP server's mask and the rehearsal's
-    manifest); this wrapper only decides *when* it applies.
+    batch.strip_render_stamps is the one normalization (RENDER_STAMPS plus
+    MANIFEST_STAMPS the one stamp list, shared with the MCP server's mask and
+    the rehearsal's manifest); this wrapper only decides *when* it applies --
+    the answers file and the composition manifest, whose refs vary per render.
     """
-    if Path(rel).name != batch.ANSWERS_FILE:
+    if Path(rel).name not in (batch.ANSWERS_FILE, batch.MANIFEST_FILE):
         return data
     return batch.strip_render_stamps(data)
 
@@ -362,6 +374,30 @@ def _classify(
     return failures, added, removed
 
 
+def _run_soundness_audit(
+    paths: tuple[Path, Path],
+    leaves: tuple[dict[str, Any], dict[str, Any]],
+    unaffected: list[str],
+    *,
+    jobs: int,
+    audit: int,
+) -> tuple[int, dict[str, list[str]]]:
+    """Sample unaffected leaves and verify their outputs did not change unexpectedly."""
+    if not (audit and unaffected):
+        return 0, {}
+    base_checkout, work = paths
+    base_leaves, new_leaves = leaves
+    rng = random.Random(20260914)  # noqa: S311  WHYNOT: picks which leaf to re-probe, not a secret.
+    probe = rng.sample(unaffected, min(audit, len(unaffected)))
+    old_probe = _render_side(base_checkout, probe, base_leaves, work / "audit-old", jobs)
+    new_probe = _render_side(TOP, probe, new_leaves, work / "audit-new", jobs)
+    audit_failures: dict[str, list[str]] = {}
+    for leaf_id in probe:
+        if old_probe.get(leaf_id) != new_probe.get(leaf_id):
+            audit_failures[leaf_id] = ["an unaffected leaf changed: Layer A missed a flow"]
+    return len(probe), audit_failures
+
+
 def verify(base_ref: str = "HEAD", jobs: int = DEFAULT_JOBS, audit: int = 0) -> tuple[int, dict[str, Any]]:
     """The whole pipeline: tables, diff, candidate renders, verdict."""
     base_checkout = _baseline_checkout(base_ref)
@@ -386,19 +422,10 @@ def verify(base_ref: str = "HEAD", jobs: int = DEFAULT_JOBS, audit: int = 0) -> 
         carried = {leaf_id: old_state.manifests.get(leaf_id, {}) for leaf_id in new_state.leaves - candidates}
         save_manifests(new_state, {**new_manifests, **carried})
 
-        audited = 0
-        audit_failures: dict[str, list[str]] = {}
         unaffected = sorted(frozenset(new_state.leaves) - candidates)
-        if audit and unaffected:
-            rng = random.Random(20260914)  # noqa: S311  WHYNOT: picks which leaf to re-probe, not a secret.
-            probe = rng.sample(unaffected, min(audit, len(unaffected)))
-            old_probe = _render_side(base_checkout, probe, base_leaves, work / "audit-old", jobs)
-            new_probe = _render_side(TOP, probe, new_leaves, work / "audit-new", jobs)
-            audited = len(probe)
-            for leaf_id in probe:
-                if old_probe.get(leaf_id) != new_probe.get(leaf_id):
-                    audit_failures[leaf_id] = ["an unaffected leaf changed: Layer A missed a flow"]
-
+        audited, audit_failures = _run_soundness_audit(
+            (base_checkout, work), (base_leaves, new_leaves), unaffected, jobs=jobs, audit=audit
+        )
         payload = {
             "base": base_ref,
             "leaves": len(new_state.leaves),

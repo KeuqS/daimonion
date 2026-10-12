@@ -19,6 +19,8 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 
 TOP = Path(__file__).resolve().parent.parent
@@ -73,6 +75,13 @@ def main() -> int:
         # https clone needs no auth -- no secret, no deploy key, no PAT.
         run("git", "clone", "--quiet", CODEX_URL, str(codex))
         upstream_head = run("git", "rev-parse", "HEAD", cwd=codex).strip()
+        upstream_ts = int(run("git", "show", "-s", "--format=%ct", "HEAD", cwd=codex).strip())
+        age_days = max(
+            0,
+            (datetime.now(UTC) - datetime.fromtimestamp(upstream_ts, UTC)).days,
+        )
+        # Additive display only: exit semantics below are unchanged.
+        print(f"vendored={vendored_sha[:8]} upstream={upstream_head[:8]} age_days={age_days}")
         upstream_sections = _tree(codex / "sections")
 
         # The codex's own tree at the vendored SHA, for the dirty-vendor check.

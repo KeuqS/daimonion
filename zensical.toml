@@ -44,6 +44,8 @@ nav = [
       { "Quarto Paper" = "how-to/quarto-paper.md" },
       { "Ethics Sections" = "how-to/ethics-section.md" },
       { "Inspect a Target Before Adopting" = "how-to/detect.md" },
+      { "Explain a Preset or an Answer" = "how-to/explain.md" },
+      { "Propose a Configuration from Requirements" = "how-to/suggest.md" },
       { "Adopt Into an Existing Project" = "how-to/adopt.md" },
       { "Code Coverage" = "how-to/coverage.md" },
       { "Check Docs Style" = "how-to/check-docs-style.md" },
@@ -68,6 +70,7 @@ nav = [
       { "Ethics as External Source" = "explanations/ethics-external.md" },
       { "Branching Model" = "explanations/branching.md" },
       { "Drift Detection" = "explanations/drift-detection.md" },
+      { "Cross-Language Contract" = "explanations/cross-language-contract.md" },
   ]},
   { "Reference" = [
       { "Overview" = "reference.md" },

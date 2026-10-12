@@ -1,0 +1,189 @@
+{# Template-update trial PRs, opt-in (TODO.md §42-A1).
+
+   What this is: the user-side update operation. The repo's own
+   `update-rehearsal` proves the template's update path over the witness
+   leaves; this workflow runs `copier update` inside a generated project,
+   on a branch, and summarises the result as a pull request a human reads
+   and merges by hand.
+
+   Why opt-in lives in the workflow, not the questionnaire: a new question
+   would widen the leaf space (272-leaf witness regeneration); a GitHub
+   repository variable keeps the questionnaire — and every committed
+   witness expect — byte-identical while each user decides for themselves.
+   Until `TEMPLATE_UPDATE=1` the scheduled run skips with success.
+
+   Why gh CLI and not create-pull-request: the generated renovate.json
+   pins exactly the actions the workflows use (tests hold the two equal),
+   so this workflow uses only actions renovate already tracks, and the
+   preinstalled gh CLI for the branch push + PR. #}
+{% raw %}name: Template update
+
+# Weekly trial of `copier update`, opened as a pull request for a human.
+#
+# - Opt-in: set the TEMPLATE_UPDATE repository variable to 1
+#   (Settings > Variables > Actions). Until then every run — schedule
+#   included — skips the job with success, so generating this file changes
+#   nothing until the user asks for it. No new copier question is involved.
+# - The trial runs on a `daimonion/update-<ref>` branch. The existing CI
+#   runs on the PR by GitHub's default (a PR opening fires ci.yml), so this
+#   workflow never calls it.
+# - Nothing is ever merged automatically: the PR body says so, and no step
+#   merges. A conflict keeps the branch and is reported in the PR body; the
+#   run stays green, because deciding is the point, not failing.
+# - Least privilege: read-only at the top; the update job adds exactly the
+#   two scopes its push + PR need.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Template ref to trial-update to (empty means the template default, usually its newest release)"
+        required: false
+        default: ""
+  schedule:
+    # Weekly trial, Monday 04:00 UTC.
+    - cron: "0 4 * * MON"
+
+# One trial at a time: a second run force-pushing the same branch mid-run
+# would race the first (both push the branch and open/edit the same PR).
+concurrency:
+  group: template-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Try copier update and open a PR
+    if: vars.TEMPLATE_UPDATE == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # push the trial branch; a read-only token fails the push with 403
+      pull-requests: write # gh pr create/edit for the trial PR; 403 without it
+    env:
+      # Into the environment (not inline `${{ }}` in run:) so the ref can
+      # never inject workflow syntax into a shell script.
+      WANT_REF: ${{ inputs.ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The trial diffs the branch against main and pushes it.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Trial the template update on a branch
+        id: trial
+        run: |
+          set -euo pipefail
+          BEFORE=$(awk '/^_commit:/ {print $2; exit}' .copier-answers.yml)
+          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
+          if [ -n "${WANT_REF:-}" ]; then
+            REF="$WANT_REF"
+            REF_ARG="--vcs-ref $WANT_REF"
+          else
+            REF="latest"
+            REF_ARG=""
+          fi
+          # A branch name no template ref can break out of.
+          SLUG=$(printf '%s' "$REF" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-64)
+          BRANCH="daimonion/update-$SLUG"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          git switch -C "$BRANCH"
+          # shellcheck disable=SC2086: REF_ARG is empty or exactly one flag plus its value.
+          if uvx copier update --trust --defaults $REF_ARG; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            # The branch is kept on purpose: the PR step below carries the
+            # state for a human to inspect, and the run stays green.
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+          AFTER=$(awk '/^_commit:/ {print $2; exit}' .copier-answers.yml || true)
+          echo "after=${AFTER:-$BEFORE}" >> "$GITHUB_OUTPUT"
+
+      - name: Push the branch and open (or refresh) the PR
+        if: steps.trial.outputs.after != steps.trial.outputs.before || steps.trial.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.trial.outputs.branch }}
+          REF: ${{ steps.trial.outputs.ref }}
+          BEFORE: ${{ steps.trial.outputs.before }}
+          AFTER: ${{ steps.trial.outputs.after }}
+          CONFLICT: ${{ steps.trial.outputs.conflict }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The checkout keeps no credentials (persist-credentials: false
+          # above), so let gh install its credential helper from GH_TOKEN
+          # rather than embedding the token in the remote URL, where a git
+          # error would echo it back into the log.
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: trial template update to $REF" || true
+          # Fetch first: without it --force-with-lease compares against
+          # "the branch does not exist" and rejects the push that follows
+          # an already-open trial PR. Reaches here only per branch, so
+          # nothing under review elsewhere moves.
+          git fetch origin "$BRANCH" || true
+          git push --force-with-lease origin "$BRANCH"
+          {
+            echo "Trial update \`$BEFORE\` -> \`$AFTER\` (requested ref: \`$REF\`)."
+            echo
+            echo "This PR never merges itself: read the diff, let the regular"
+            echo "CI on this PR run, then merge by hand if the diff is what you want."
+            echo
+            echo "## Diff summary"
+            echo
+            echo '```'
+            git diff --stat "main...$BRANCH"
+            echo '```'
+            echo
+            echo "## Template revision"
+            echo
+            echo "- before: \`$BEFORE\`"
+            echo "- after: \`$AFTER\`"
+            echo
+            echo "## Manifest"
+            echo
+            echo "Compare \`.daimonion-manifest.yml\` against \`main\` for the rationale"
+            echo "this update carries (the template ref above plus the ethics sections):"
+            echo
+            echo '```'
+            git diff "main...$BRANCH" -- .daimonion-manifest.yml | head -100
+            echo '```'
+            if [ "$CONFLICT" = "true" ]; then
+              echo
+              echo "## Needs a human look"
+              echo
+              echo "copier did not finish cleanly (a conflict or an error), so this"
+              echo "branch keeps the state for you to resolve by hand. The workflow"
+              echo "run stays green on purpose: deciding is the point, not failing."
+            fi
+            echo
+            echo "_From run $RUN_URL._"
+          } > /tmp/pr-body.md
+          if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')" -ne 0 ]; then
+            gh pr edit "$BRANCH" --body-file /tmp/pr-body.md
+          else
+            gh pr create \
+              --title "chore: trial template update to $REF" \
+              --head "$BRANCH" \
+              --body-file /tmp/pr-body.md
+          fi
+
+      - name: Report an already-current template
+        if: steps.trial.outputs.after == steps.trial.outputs.before && steps.trial.outputs.conflict != 'true'
+        env:
+          CURRENT: ${{ steps.trial.outputs.after }}
+        run: echo "Template already current at $CURRENT; no PR opened."
+{% endraw -%}

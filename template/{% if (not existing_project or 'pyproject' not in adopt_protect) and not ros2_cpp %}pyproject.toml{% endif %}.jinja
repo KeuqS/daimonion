@@ -15,11 +15,11 @@ authors = [
   # Further authors may be added by duplicating this section
   { name = "{{ author_name }}", email = "{{ author_email }}" }
 ]
-{% if package_manager == 'poetry' %}requires-python = ">=3.11,<4.0"{% else %}requires-python = ">={{ m.python_version() }}"{% endif %}
+{% if is_poetry %}requires-python = ">=3.11,<4.0"{% else %}requires-python = ">={{ m.python_version() }}"{% endif %}
 classifiers = [
     "Development Status :: 3 - Alpha",
     {{ m.classifiers() }}]
-{% if ros2_pkg or package_manager == 'poetry' %}{# poetry は setuptools-scm 由来の dynamic version を解釈しないため静的にする #}version = "0.1.0"
+{% if ros2_pkg or is_poetry %}{# poetry は setuptools-scm 由来の dynamic version を解釈しないため静的にする #}version = "0.1.0"
 {% elif micropython_pkg %}version = "0.1.0"
 {% elif online_judge %}version = "0.1.0"
 {% else %}dynamic = [ "version" ]
@@ -40,7 +40,7 @@ classifiers = [
 [dependency-groups]{# dev deps: base body shared by every strictness tier + the `rec` guard
    appending the recommended/full-only additions. The docs/sphinx entries are
    captured once and spliced per tier: recommended/full render them before
-   pytest (basedpyright leads the group), none/basic after ruff. #}{% set rec = strictness in ['recommended', 'full'] %}{% set zensical_deps %}"zensical",
+   pytest (basedpyright leads the group), none/basic after ruff. #}{% set rec = not strictness_minimal %}{% set zensical_deps %}"zensical",
     "mkdocstrings[python]",
     {% endset %}{% set mpremote_deps %}"mpremote",
     {% endset %}{% set sphinx_theme_deps %}"pydata-sphinx-theme>=0.12",
@@ -95,7 +95,7 @@ dev = [
 {% endif %}
 {# CTF extra body is shared (see _shared/pyproject-ctf-extra.toml.jinja). #}{% include "_shared/pyproject-ctf-extra.toml.jinja" %}
 
-{% if package_manager == "pixi" and not ros2_pkg %}[tool.pixi.workspace]
+{% if is_pixi and not ros2_pkg %}[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
@@ -123,7 +123,7 @@ dev = { features = ["dev"], solve-group = "default" }
 {{ _t.pixi_tasks() }}
 {% endif %}
 
-{% endif %}{% if package_manager == "uv" and use_gpu_effective %}
+{% endif %}{% if is_uv and use_gpu_effective %}
 [[tool.uv.index]]
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
@@ -290,7 +290,7 @@ suppress-none-returning = false
 # ruff format が折り返しを変えるため、E501 は免除する。
 # 日本語 docstring の終端句読点（D415）とシングルトン設定の global（PLW0603）も免除。
 "{{ pkg_dir }}/logging_setup.py" = ["E501", "D", "PLW0603", "I001"]
-{% endif %}{% if package_manager == "poetry" %}
+{% endif %}{% if is_poetry %}
 [tool.poetry]
 # Poetry reads the PEP 621 [project] table and [dependency-groups] above.
 # packages are auto-detected from the project layout.

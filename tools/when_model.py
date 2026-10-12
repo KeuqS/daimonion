@@ -52,9 +52,11 @@ against copier/Jinja evaluation).
 
 from __future__ import annotations
 
+import functools
 import re
 import sys
 from collections.abc import Mapping
+from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -169,6 +171,49 @@ def str_domains(questions: dict[str, dict], pt_domain: list[str] | None = None) 
     return domains
 
 
+def _scan_token(text: str, stripped: str, i: int, out: list[str]) -> int:
+    """Consume one token at `stripped[i]`, appending to `out`; return the next index."""
+    n = len(stripped)
+    c = stripped[i]
+    if c.isspace():
+        return i + 1
+    if c in "()[],":
+        out.append(c)
+        return i + 1
+    if stripped.startswith("==", i) or stripped.startswith("!=", i):
+        out.append(stripped[i : i + 2])
+        return i + 2
+    if stripped.startswith("not in", i) and not (stripped[i + 6 : i + 7].isalnum() or stripped[i + 6 : i + 7] == "_"):
+        # The lookahead keeps `not include_web_api` from reading as the
+        # operator `not in` plus a truncated identifier.
+        out.append("not in")
+        return i + 6
+    if c in "'\"":
+        end = i + 1
+        while end < n and stripped[end] != c:
+            end += 1
+        out.append(stripped[i : end + 1])
+        return end + 1
+    if c.isalpha() or c == "_":
+        end = i
+        while end < n and (stripped[end].isalnum() or stripped[end] == "_"):
+            end += 1
+        out.append(stripped[i:end])
+        return end
+    raise AssertionError(f"unexpected char {c!r} in when expression {text!r}")
+
+
+@functools.lru_cache(maxsize=1024)
+def _tokenize_when_cached(text: str) -> tuple[str, ...]:
+    """Tokenize the Jinja subset used in when expressions, cached."""
+    stripped = text.strip().removeprefix("{{").removesuffix("}}")
+    out: list[str] = []
+    i = 0
+    while i < len(stripped):
+        i = _scan_token(text, stripped, i, out)
+    return tuple(out)
+
+
 def tokenize_when(text: str) -> list[str]:
     """Tokenize the Jinja subset used in when expressions.
 
@@ -176,45 +221,200 @@ def tokenize_when(text: str) -> list[str]:
     quoted strings, list brackets, ==, !=, in / not in, and parentheses;
     whitespace is skipped.
     """
-    text = text.strip()
-    text = text.removeprefix("{{")
-    text = text.removesuffix("}}")
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if c.isspace():
-            i += 1
-        elif c in "()[],":
-            out.append(c)
-            i += 1
-        elif text.startswith("==", i):
-            out.append("==")
-            i += 2
-        elif text.startswith("!=", i):
-            out.append("!=")
-            i += 2
-        elif text.startswith("not in", i) and not (text[i + 6 : i + 7].isalnum() or text[i + 6 : i + 7] == "_"):
-            # The lookahead keeps `not include_web_api` from reading as the
-            # operator `not in` plus a truncated identifier.
-            out.append("not in")
-            i += 6
-        elif c in "'\"":
-            j = i + 1
-            while j < n and text[j] != c:
-                j += 1
-            out.append(text[i : j + 1])
-            i = j + 1
-        elif c.isalpha() or c == "_":
-            j = i
-            while j < n and (text[j].isalnum() or text[j] == "_"):
-                j += 1
-            out.append(text[i:j])
-            i = j
+    return list(_tokenize_when_cached(text))
+
+
+class _WhenList:
+    __slots__ = ("items",)
+
+    def __init__(self, items: list[str]) -> None:
+        self.items = items
+
+
+class _WhenVar:
+    """A symbolic str question: an Int over its static choices."""
+
+    __slots__ = ("_z3", "domain", "name")
+
+    def __init__(self, name: str, domain: list[str], z3: ModuleType) -> None:
+        self.name = name
+        self.domain = domain
+        self._z3 = z3
+
+    def eq(self, literal: str) -> object:
+        try:
+            return self._z3.Int(self.name) == self.domain.index(literal)
+        except ValueError:
+            return self._z3.BoolVal(False)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
+
+
+class _WhenZ3Parser:
+    """Recursive-descent parser mapping Jinja when-syntax to Z3 formulas."""
+
+    def __init__(
+        self,
+        expr: str,
+        tokens: Sequence[str],
+        domains: Mapping[str, list[str]],
+        z3: ModuleType,
+    ) -> None:
+        self.expr = expr
+        self.tokens = tokens
+        self.domains = domains
+        self.z3 = z3
+        self.i = 0
+
+    def peek(self) -> str | None:
+        return self.tokens[self.i] if self.i < len(self.tokens) else None
+
+    def pop(self) -> str:
+        tok = self.peek()
+        if tok is None:
+            raise AssertionError(f"unexpected end of when expression {self.expr!r}")
+        self.i += 1
+        return tok
+
+    def parse(self) -> object:
+        node = self.parse_or()
+        if self.i != len(self.tokens):
+            raise AssertionError(f"trailing tokens in when expression {self.expr!r}: {self.tokens[self.i :]}")
+        return node
+
+    def parse_or(self) -> object:
+        node = self.parse_and()
+        while self.peek() == "or":
+            self.pop()
+            node = self.z3.Or(node, self.parse_and())
+        return node
+
+    def parse_and(self) -> object:
+        node = self.parse_not()
+        while self.peek() == "and":
+            self.pop()
+            node = self.z3.And(node, self.parse_not())
+        return node
+
+    def parse_not(self) -> object:
+        if self.peek() == "not":
+            self.pop()
+            return self.z3.Not(self.parse_not())
+        return self.parse_cmp()
+
+    def parse_cmp(self) -> object:
+        left = self.parse_atom()
+        op = self.peek()
+        if op in ("==", "!=", "in", "not in"):
+            self.pop()
+            right = self.parse_atom()
+            if op == "==":
+                return self._encode_equality(left, right)
+            if op == "!=":
+                return self.z3.Not(self._encode_equality(left, right))
+            if op == "in":
+                return self._encode_membership(left, right)
+            return self.z3.Not(self._encode_membership(left, right))
+        return left
+
+    def parse_atom(self) -> object:
+        tok = self.pop()
+        if tok == "(":
+            node = self.parse_or()
+            if self.pop() != ")":
+                raise AssertionError(f"unbalanced parens in when expression {self.expr!r}")
+            return node
+        if tok == "[":
+            return self._parse_list_literal()
+        if tok in self.domains:
+            return _WhenVar(tok, self.domains[tok], self.z3)
+        if (tok.startswith("'") and tok.endswith("'")) or (tok.startswith('"') and tok.endswith('"')):
+            return tok[1:-1]
+        if tok in ("true", "True"):
+            return self.z3.BoolVal(True)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
+        if tok in ("false", "False"):
+            return self.z3.BoolVal(False)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
+        return self.z3.Bool(tok)
+
+    def _parse_list_literal(self) -> _WhenList:
+        items: list[str] = []
+        while self.peek() not in ("]", None):
+            if self.peek() == ",":
+                self.pop()
+                continue
+            items.append(self._parse_string_literal(self.pop()))
+        self.pop()  # ']'
+        return _WhenList(items)
+
+    def _parse_string_literal(self, tok: str) -> str:
+        if (tok.startswith("'") and tok.endswith("'")) or (tok.startswith('"') and tok.endswith('"')):
+            return tok[1:-1]
+        raise AssertionError(f"expected string literal, got {tok!r} in {self.expr!r}")
+
+    def _encode_equality(self, left: object, right: object) -> object:
+        lvar = left if isinstance(left, _WhenVar) else None
+        rvar = right if isinstance(right, _WhenVar) else None
+        llit = left if isinstance(left, str) and not isinstance(left, _WhenVar) else None
+        rlit = right if isinstance(right, str) and not isinstance(right, _WhenVar) else None
+        if lvar is not None and isinstance(rlit, str):
+            return lvar.eq(rlit)
+        if rvar is not None and isinstance(llit, str):
+            return rvar.eq(llit)
+        if lvar is not None and rvar is not None:
+            return self._encode_two_var_equality(lvar, rvar)
+        return self.z3.Bool(f"eq_{left}_{right}")
+
+    def _encode_two_var_equality(self, lvar: _WhenVar, rvar: _WhenVar) -> object:
+        shared = [value for value in lvar.domain if value in rvar.domain]
+        if not shared:
+            return self.z3.BoolVal(False)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
+        return self.z3.Or(
+            [
+                self.z3.And(
+                    self.z3.Int(lvar.name) == lvar.domain.index(value),
+                    self.z3.Int(rvar.name) == rvar.domain.index(value),
+                )
+                for value in shared
+            ]
+        )
+
+    def _encode_membership(self, elem: object, container: object) -> object:
+        if isinstance(elem, _WhenVar) and isinstance(container, _WhenList):
+            return self.z3.Or([elem.eq(item) for item in container.items])
+        raise AssertionError(f"cannot model membership {elem!r} in {container!r} in {self.expr!r}")
+
+
+def _build_pinned_domains_and_fixed(
+    str_domains: Mapping[str, list[str]],
+    pinned: Mapping[str, Any] | None,
+    z3: ModuleType,
+) -> tuple[dict[str, list[str]], list[object]]:
+    """Apply pinned answers to domains (shrinking str domains) and fixed bools."""
+    domains = dict(str_domains)
+    fixed: list[object] = []
+    for name, answer in (pinned or {}).items():
+        if name in domains and not isinstance(answer, str):
+            raise AssertionError(f"cannot pin str question {name!r} to {answer!r}")
+        if isinstance(answer, str):
+            domains[name] = [answer]
+        elif isinstance(answer, bool):
+            fixed.append(z3.Bool(name) == z3.BoolVal(answer))  # noqa: FBT003  WHYNOT: z3's own API.
         else:
-            raise AssertionError(f"unexpected char {c!r} in when expression {text!r}")
-    return out
+            raise AssertionError(f"cannot pin {name!r} to {answer!r}: only str and bool answers are modeled")
+    return domains, fixed
+
+
+def _build_domain_bound_solver(
+    domains: Mapping[str, list[str]],
+    fixed: Sequence[object],
+    cond: object,
+    z3: ModuleType,
+) -> Any:
+    """Build a Z3 Solver bounding each domain to its valid indices and asserting cond."""
+    solver = z3.Solver()
+    for name, domain in domains.items():
+        solver.add(z3.Or([z3.Int(name) == i for i in range(len(domain))]))
+    solver.add(*fixed)
+    solver.add(cond)
+    return solver
 
 
 def when_expr_satisfiable(
@@ -244,174 +444,9 @@ def when_expr_satisfiable(
     of the same expression — including for the str variables whose `choices`
     are templated and which `str_domains` therefore leaves free.
     """
-
-    class _List:
-        def __init__(self, items: list[str]) -> None:
-            self.items = items
-
-    class _Var:
-        """A symbolic str question: an Int over its static choices."""
-
-        def __init__(self, name: str) -> None:
-            self.name = name
-            self.domain = domains[name]
-
-        def eq(self, literal: str) -> object:
-            try:
-                return z3.Int(self.name) == self.domain.index(literal)
-            except ValueError:
-                return z3.BoolVal(False)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
-
-    domains = dict(str_domains)
-    fixed: list[object] = []
-    for name, answer in (pinned or {}).items():
-        if name in domains and not isinstance(answer, str):
-            raise AssertionError(f"cannot pin str question {name!r} to {answer!r}")
-        if isinstance(answer, str):
-            domains[name] = [answer]
-        elif isinstance(answer, bool):
-            fixed.append(z3.Bool(name) == z3.BoolVal(answer))  # noqa: FBT003  WHYNOT: z3's own API.
-        else:
-            raise AssertionError(f"cannot pin {name!r} to {answer!r}: only str and bool answers are modeled")
-
-    tokens = tokenize_when(expr)
-
-    class Parser:
-        def __init__(self) -> None:
-            self.i = 0
-
-        def peek(self) -> str | None:
-            return tokens[self.i] if self.i < len(tokens) else None
-
-        def pop(self) -> str:
-            tok = self.peek()
-            if tok is None:
-                raise AssertionError(f"unexpected end of when expression {expr!r}")
-            self.i += 1
-            return tok
-
-        def parse(self) -> object:
-            node = self.parse_or()
-            if self.i != len(tokens):
-                raise AssertionError(f"trailing tokens in when expression {expr!r}: {tokens[self.i :]}")
-            return node
-
-        def parse_or(self) -> object:
-            node = self.parse_and()
-            while self.peek() == "or":
-                self.pop()
-                node = z3.Or(node, self.parse_and())
-            return node
-
-        def parse_and(self) -> object:
-            node = self.parse_not()
-            while self.peek() == "and":
-                self.pop()
-                node = z3.And(node, self.parse_not())
-            return node
-
-        def parse_not(self) -> object:
-            if self.peek() == "not":
-                self.pop()
-                return z3.Not(self.parse_not())
-            return self.parse_cmp()
-
-        def parse_cmp(self) -> object:
-            left = self.parse_atom()
-            op = self.peek()
-            if op in ("==", "!=", "in", "not in"):
-                self.pop()
-                right = self.parse_atom()
-                if op == "==":
-                    return self._eq(left, right)
-                if op == "!=":
-                    return z3.Not(self._eq(left, right))
-                if op == "in":
-                    return self._member(left, right)
-                return z3.Not(self._member(left, right))
-            # bare atom: bool identifier or parenthesized expression
-            return left
-
-        def parse_atom(self) -> object:
-            tok = self.pop()
-            if tok == "(":
-                node = self.parse_or()
-                if self.pop() != ")":
-                    raise AssertionError(f"unbalanced parens in when expression {expr!r}")
-                return node
-            if tok == "[":
-                items: list[str] = []
-                while self.peek() not in ("]", None):
-                    if self.peek() == ",":
-                        self.pop()
-                        continue
-                    items.append(self._string(self.pop()))
-                self.pop()  # ']'
-                return _List(items)
-            if tok in domains:
-                return _Var(tok)
-            if (tok.startswith("'") and tok.endswith("'")) or (tok.startswith('"') and tok.endswith('"')):
-                return tok[1:-1]  # string literal
-            # bare identifier: boolean literal or a free bool variable
-            if tok in ("true", "True"):
-                return z3.BoolVal(True)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
-            if tok in ("false", "False"):
-                return z3.BoolVal(False)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
-            return z3.Bool(tok)  # free bool question reference
-
-        def _string(self, tok: str) -> str:
-            if (tok.startswith("'") and tok.endswith("'")) or (tok.startswith('"') and tok.endswith('"')):
-                return tok[1:-1]
-            raise AssertionError(f"expected string literal, got {tok!r} in {expr!r}")
-
-        def _eq(self, left: object, right: object) -> object:
-            lvar, rvar = (left if isinstance(left, _Var) else None), (right if isinstance(right, _Var) else None)
-            llit = left if isinstance(left, str) and not isinstance(left, _Var) else None
-            rlit = right if isinstance(right, str) and not isinstance(right, _Var) else None
-            if lvar is not None and isinstance(rlit, str):
-                return lvar.eq(rlit)
-            if rvar is not None and isinstance(llit, str):
-                return rvar.eq(llit)
-            if lvar is not None and rvar is not None:
-                # Two str references: equality of the *answers*, not of the
-                # indices (each question's domain indexes its own values, so
-                # `Int(x) == Int(y)` would compare positions, not answers).
-                # tests/test_when_model.py caught exactly that mistake, which is
-                # why the pair is encoded as a disjunction over the answers both
-                # domains share.
-                shared = [value for value in lvar.domain if value in rvar.domain]
-                if not shared:
-                    return z3.BoolVal(False)  # noqa: FBT003  WHYNOT: z3's own API takes a Python bool.
-                return z3.Or(
-                    [
-                        z3.And(
-                            z3.Int(lvar.name) == lvar.domain.index(value),
-                            z3.Int(rvar.name) == rvar.domain.index(value),
-                        )
-                        for value in shared
-                    ]
-                )
-            # bool identifiers, or a bool against a str: free. Jinja would say
-            # False for the mixed case, but an unpinned str reference is a free
-            # boolean here, so the model cannot tell the two apart. The free
-            # boolean is named by its OPERANDS, not the parser position, so the
-            # same comparison repeated inside one expression is the same
-            # unknown (a caller comparing two texts -- e.g. the XOR
-            # equivalence check in tools/predicates.py -- would otherwise see
-            # each copy as an independent boolean and call identical
-            # predicates different).
-            return z3.Bool(f"eq_{left}_{right}")
-
-        def _member(self, elem: object, container: object) -> object:
-            if isinstance(elem, _Var) and isinstance(container, _List):
-                return z3.Or([elem.eq(item) for item in container.items])
-            raise AssertionError(f"cannot model membership {elem!r} in {container!r} in {expr!r}")
-
-    parser = Parser()
+    domains, fixed = _build_pinned_domains_and_fixed(str_domains, pinned, z3)
+    tokens = _tokenize_when_cached(expr)
+    parser = _WhenZ3Parser(expr, tokens, domains, z3)
     cond = parser.parse()
-    solver = z3.Solver()
-    for name, domain in domains.items():
-        solver.add(z3.Or([z3.Int(name) == i for i in range(len(domain))]))
-    solver.add(*fixed)
-    solver.add(cond)
+    solver = _build_domain_bound_solver(domains, fixed, cond, z3)
     return solver.check() == z3.sat

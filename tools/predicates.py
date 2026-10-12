@@ -779,52 +779,56 @@ def _ask_time_gate(entry: dict[str, Any]) -> bool:
     return all(site.kind == QUESTION for site in entry["sites"])
 
 
-def _shortcut_suggestions(
-    sites: list[Site], classes: list[dict[str, Any]], leaves: Sequence[LeafLike]
-) -> dict[str, list[Any]]:
-    """The naming and flattening candidates (thresholds are module constants, with reasons).
+def _classify_shortcut_candidate(entry: dict[str, Any], total: int) -> tuple[str, dict[str, Any]] | None:
+    """Classify an unnamed candidate class into naming, named_spellings, or ask_time_gates."""
+    if entry["named_internal"] is not None or not 0 < entry["fires"] < total:
+        return None
+    if len(entry["sites"]) < SHORTCUT_MIN_SITES:
+        return None
+    row = {
+        "fires": entry["fires"],
+        "sites": [site.location for site in entry["sites"]],
+        "expr": entry["sites"][0].expr,
+    }
+    spelled = _spelled_name(entry)
+    if spelled is not None:
+        return "named_spellings", {**row, "name": spelled}
+    if _ask_time_gate(entry):
+        return "ask_time_gates", row
+    return "naming", row
 
-    `named_spellings` and `ask_time_gates` are the repeated classes the two
-    structural exclusions above keep out of `naming`; they stay in the payload
-    so the exclusions can be audited instead of a bare zero.
-    """
-    total = len(leaves)
-    naming: list[dict[str, Any]] = []
-    named_spellings: list[dict[str, Any]] = []
-    ask_time_gates: list[dict[str, Any]] = []
-    for entry in classes:
-        if entry["named_internal"] is not None or not 0 < entry["fires"] < total:
-            continue
-        if len(entry["sites"]) < SHORTCUT_MIN_SITES:
-            continue
-        row = {
-            "fires": entry["fires"],
-            "sites": [site.location for site in entry["sites"]],
-            "expr": entry["sites"][0].expr,
-        }
-        spelled = _spelled_name(entry)
-        if spelled is not None:
-            named_spellings.append({**row, "name": spelled})
-        elif _ask_time_gate(entry):
-            ask_time_gates.append(row)
-        else:
-            naming.append(row)
+
+def _find_flattening_candidates(sites: list[Site], total: int) -> list[dict[str, Any]]:
+    """Find named internals that never split the leaf space."""
     referenced: dict[str, int] = defaultdict(int)
     for site in sites:
         for name in site.refs:
             referenced[name] += 1
     internal_sites = _internal_sites(sites)
-    flattening = [
+    return [
         {"internal": name, "fires": _fires(site.vector), "referencing_sites": referenced[name]}
         for name, site in sorted(internal_sites.items())
         if site.vector is not None and not 0 < _fires(site.vector) < total
     ]
-    return {
-        "naming": naming,
-        "named_spellings": named_spellings,
-        "ask_time_gates": ask_time_gates,
-        "flattening": flattening,
+
+
+def _shortcut_suggestions(
+    sites: list[Site], classes: list[dict[str, Any]], leaves: Sequence[LeafLike]
+) -> dict[str, list[Any]]:
+    """The naming and flattening candidates (thresholds are module constants, with reasons)."""
+    total = len(leaves)
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "naming": [],
+        "named_spellings": [],
+        "ask_time_gates": [],
     }
+    for entry in classes:
+        classified = _classify_shortcut_candidate(entry, total)
+        if classified is not None:
+            category, row = classified
+            buckets[category].append(row)
+    buckets["flattening"] = _find_flattening_candidates(sites, total)
+    return buckets
 
 
 def _unevaluable(sites: list[Site]) -> list[dict[str, str]]:
@@ -893,30 +897,28 @@ def _candidate_lines(candidates: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _shortcut_lines(suggestions: dict[str, list[Any]], total: int) -> list[str]:
-    """The shortcut suggestions: naming candidates, the suppression buckets, and flattening."""
-    naming, flattening = suggestions["naming"], suggestions["flattening"]
-    lines = [
-        (
-            f"shortcut suggestions -- naming candidates: an unnamed class splitting the space at "
-            f">= {SHORTCUT_MIN_SITES} sites ({len(naming)}); flattening candidates: a named internal that "
-            f"never splits ({len(flattening)})"
-        )
-    ]
-    lines += [
+def _format_naming_lines(naming: list[dict[str, Any]], total: int) -> list[str]:
+    """Format lines suggesting unnamed expressions for extraction into a named internal."""
+    return [
         (
             f"  name this: fires {candidate['fires']:>4}/{total} at {len(candidate['sites'])} sites, "
             f"e.g. {{% if {candidate['expr']} %}} (first: {candidate['sites'][0]})"
         )
         for candidate in naming
     ]
-    for label, reason in (
+
+
+def _format_suppression_lines(suggestions: dict[str, list[Any]], total: int) -> list[str]:
+    """Format lines explaining why certain repeated classes are suppressed from naming."""
+    reasons = (
         (
             "named_spellings",
             "a site writes one declared identifier (or its negation) -- the class already has that name",
         ),
         ("ask_time_gates", "lives only in question whens -- the questionnaire's own vocabulary"),
-    ):
+    )
+    lines: list[str] = []
+    for label, reason in reasons:
         bucket = suggestions.get(label, [])
         if not bucket:
             continue
@@ -930,14 +932,34 @@ def _shortcut_lines(suggestions: dict[str, list[Any]], total: int) -> list[str]:
             )
             for candidate in bucket
         ]
-    lines += [
+    return lines
+
+
+def _format_flattening_lines(flattening: list[dict[str, Any]], total: int) -> list[str]:
+    """Format lines suggesting dead internal variables for flattening."""
+    return [
         (
             f"  flatten?  `{candidate['internal']}` fires on {candidate['fires']}/{total} leaves "
             f"({candidate['referencing_sites']} sites reference it) -- a shortcut that never splits is dead weight"
         )
         for candidate in flattening
     ]
-    return lines
+
+
+def _shortcut_lines(suggestions: dict[str, list[Any]], total: int) -> list[str]:
+    """The shortcut suggestions: naming candidates, the suppression buckets, and flattening."""
+    naming, flattening = suggestions["naming"], suggestions["flattening"]
+    header = (
+        f"shortcut suggestions -- naming candidates: an unnamed class splitting the space at "
+        f">= {SHORTCUT_MIN_SITES} sites ({len(naming)}); flattening candidates: a named internal that "
+        f"never splits ({len(flattening)})"
+    )
+    return [
+        header,
+        *_format_naming_lines(naming, total),
+        *_format_suppression_lines(suggestions, total),
+        *_format_flattening_lines(flattening, total),
+    ]
 
 
 def report(
@@ -990,33 +1012,39 @@ def json_report(
     return {
         "leaves": len(leaves),
         "internals": internals,
-        "sites": [
-            {
-                "kind": site.kind,
-                "location": site.location,
-                "expr": site.expr,
-                "eval_expr": site.eval_expr,
-                "refs": sorted(site.refs),
-                "vector": site.vector,
-                "error": site.error,
-            }
-            for site in sites
-        ],
-        "tree": [
-            {"id": row.id, "leaves": count, "select": row.select, "sample_leaf_ids": selected[:3]}
-            for row, count, selected in tree
-        ],
-        "classes": [
-            {
-                "fires": entry["fires"],
-                "named_internal": entry["named_internal"],
-                "sites": [site.location for site in entry["sites"]],
-            }
-            for entry in classes
-        ],
+        "sites": [_site_record(site) for site in sites],
+        "tree": [_tree_record(row, count, selected) for row, count, selected in tree],
+        "classes": [_class_record(entry) for entry in classes],
         "unification_candidates": _unification_candidates(sites, named, len(leaves)),
         "shortcuts": _shortcut_suggestions(sites, classes, leaves),
         "unevaluable": _unevaluable(sites),
+    }
+
+
+def _site_record(site: Site) -> dict[str, Any]:
+    """One site's machine record: identity, expression, reads and verdict."""
+    return {
+        "kind": site.kind,
+        "location": site.location,
+        "expr": site.expr,
+        "eval_expr": site.eval_expr,
+        "refs": sorted(site.refs),
+        "vector": site.vector,
+        "error": site.error,
+    }
+
+
+def _tree_record(row: invariants.LeafClass, count: int, selected: list[str]) -> dict[str, Any]:
+    """One classification-tree row: the class, its leaf count and sample ids."""
+    return {"id": row.id, "leaves": count, "select": row.select, "sample_leaf_ids": selected[:3]}
+
+
+def _class_record(entry: dict[str, Any]) -> dict[str, Any]:
+    """One equivalence class: its fires, name verdict and member sites."""
+    return {
+        "fires": entry["fires"],
+        "named_internal": entry["named_internal"],
+        "sites": [site.location for site in entry["sites"]],
     }
 
 

@@ -94,9 +94,14 @@ jobs:
               print("invalid YAML:\n" + "\n".join(bad))
               sys.exit(1)
           PY
-
+      - name: Secrets scan skipped (no config)
+        # The self-skip's notice half: generated projects only ship
+        # .gitleaks.toml under cicd_extras (the bare preset drops it), so a
+        # render without the config runs no secrets scan. The notice keeps
+        # the skip visible instead of silent.
+        if: hashFiles('.gitleaks.toml') == ''
+        run: echo "::notice::secrets scanning disabled (no .gitleaks.toml in generated project)"
       - name: Scan for secrets (gitleaks)
-        # The step is self-skipping: generated projects only ship
         # .gitleaks.toml under cicd_extras (the bare preset drops it), so a
         # render without the config runs no secrets scan -- the config is the
         # contract, not a template-time if.

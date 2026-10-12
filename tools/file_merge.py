@@ -188,6 +188,34 @@ def _parses_as_mapping(text: str) -> bool:
     return document is None or isinstance(document, dict)
 
 
+def _apply_taskfile_append(
+    target_path: Path,
+    target_text: str,
+    blocks: dict[str, str],
+    missing: dict[str, str],
+    result: TextMerge,
+) -> TextMerge:
+    """Safely append missing task blocks to a Taskfile and rollback if corrupt."""
+    before = _taskfile_tasks(target_text)
+    appended = target_text if target_text.endswith("\n") else target_text + "\n"
+    appended += "\n".join(blocks[name] for name in sorted(missing)) + "\n"
+    target_path.write_text(appended, encoding="utf-8")
+    after = _taskfile_tasks(appended)
+    kept = all(name in after and after[name] == value for name, value in before.items())
+    # An empty `before` makes `kept` vacuously true, so the append must also be
+    # re-parseable and must actually carry the tasks it claims: a target with
+    # `tasks: {}` (or one that does not parse at all) would otherwise take the
+    # indented blocks, fail to parse, and still be reported as applied.
+    if not (_parses_as_mapping(appended) and kept and all(name in after for name in missing)):
+        target_path.write_text(target_text, encoding="utf-8")
+        result.notes.append("appending the tasks produced a task list that does not hold them; undone")
+        result.reported = sorted(missing)
+        return result
+    result.added = sorted(missing)
+    result.applied = True
+    return result
+
+
 def merge_taskfile(target_path: Path, source_path: Path, *, append: bool = False) -> TextMerge:
     """Report the tasks a YAML task file is missing — and append them when asked.
 
@@ -211,33 +239,12 @@ def merge_taskfile(target_path: Path, source_path: Path, *, append: bool = False
         return result
     if not append or not _tasks_are_the_last_block(target_text):
         result.reported = sorted(missing)
-        if not append:
-            reason = "reported rather than appended"
-        elif not _tasks_are_the_last_block(target_text):
-            reason = "not appended: tasks: is not the last block in the file"
-        else:
-            reason = "not appended"
+        reason = (
+            "reported rather than appended" if not append else "not appended: tasks: is not the last block in the file"
+        )
         result.notes.append(f"these are YAML tasks, {reason}; copy the ones you want from the generated Taskfile.yml")
         return result
-
-    before = _taskfile_tasks(target_text)
-    appended = target_text if target_text.endswith("\n") else target_text + "\n"
-    appended += "\n".join(blocks[name] for name in sorted(missing)) + "\n"
-    target_path.write_text(appended, encoding="utf-8")
-    after = _taskfile_tasks(appended)
-    kept = all(name in after and after[name] == value for name, value in before.items())
-    # An empty `before` makes `kept` vacuously true, so the append must also be
-    # re-parseable and must actually carry the tasks it claims: a target with
-    # `tasks: {}` (or one that does not parse at all) would otherwise take the
-    # indented blocks, fail to parse, and still be reported as applied.
-    if not (_parses_as_mapping(appended) and kept and all(name in after for name in missing)):
-        target_path.write_text(target_text, encoding="utf-8")
-        result.notes.append("appending the tasks produced a task list that does not hold them; undone")
-        result.reported = sorted(missing)
-        return result
-    result.added = sorted(missing)
-    result.applied = True
-    return result
+    return _apply_taskfile_append(target_path, target_text, blocks, missing, result)
 
 
 PYTHON_TASK_DECORATORS = frozenset({"task", "duty"})
@@ -314,6 +321,42 @@ def _imported_bindings(tree: ast.Module) -> dict[str, str]:
     return bindings
 
 
+def _load_and_parse_task_trees(
+    source_path: Path, target_path: Path, result: TextMerge
+) -> tuple[tuple[str, ast.Module], tuple[str, ast.Module]] | None:
+    """Load and parse source and target Python task files; returns None on failure."""
+    if not source_path.is_file():
+        result.notes.append(f"{source_path} does not exist; nothing to merge")
+        return None
+    source_text = source_path.read_text(encoding="utf-8")
+    try:
+        source_tree = ast.parse(source_text)
+    except SyntaxError:
+        result.notes.append(f"{source_path} does not parse; nothing to merge")
+        return None
+    target_text = target_path.read_text(encoding="utf-8") if target_path.is_file() else ""
+    try:
+        target_tree = ast.parse(target_text)
+    except SyntaxError:
+        result.notes.append(f"{target_path} does not parse; nothing appended")
+        return None
+    return (source_text, source_tree), (target_text, target_tree)
+
+
+def _report_unimported_task_deps(
+    missing: list[ast.FunctionDef | ast.AsyncFunctionDef],
+    unimported: list[str],
+    source_tree: ast.Module,
+    result: TextMerge,
+) -> None:
+    """Record missing tasks and their unimported bindings as notes."""
+    result.reported = sorted(node.name for node in missing)
+    bindings = _imported_bindings(source_tree)
+    for name in unimported:
+        suggestion = f"; the generated file imports it as `{bindings[name]}`" if name in bindings else ""
+        result.notes.append(f"not appended: `{name}` is not defined in your file{suggestion}")
+
+
 def merge_python_tasks(  # noqa: PLR0911  WHYNOT: each return is one guard of the report-vs-append decision, the shape the other merges share.
     target_path: Path, source_path: Path, *, append: bool = False
 ) -> TextMerge:
@@ -328,21 +371,34 @@ def merge_python_tasks(  # noqa: PLR0911  WHYNOT: each return is one guard of th
     the imports to add, never extended.
     """
     result = TextMerge(path=str(target_path), kind="python_tasks")
-    if not source_path.is_file():
-        result.notes.append(f"{source_path} does not exist; nothing to merge")
+    parsed = _load_and_parse_task_trees(source_path, target_path, result)
+    if parsed is None:
         return result
-    source_text = source_path.read_text(encoding="utf-8")
-    try:
-        source_tree = ast.parse(source_text)
-    except SyntaxError:
-        result.notes.append(f"{source_path} does not parse; nothing to merge")
+    (source_text, source_tree), (target_text, target_tree) = parsed
+    missing, unimported = _find_missing_python_tasks(source_tree, target_tree)
+    if not missing:
+        result.notes.append("every template task is already present")
         return result
-    target_text = target_path.read_text(encoding="utf-8") if target_path.is_file() else ""
-    try:
-        target_tree = ast.parse(target_text)
-    except SyntaxError:
-        result.notes.append(f"{target_path} does not parse; nothing appended")
+    if unimported:
+        _report_unimported_task_deps(missing, unimported, source_tree, result)
         return result
+    if not append:
+        result.reported = sorted(node.name for node in missing)
+        result.notes.append(
+            "these are Python tasks, reported rather than appended; "
+            f"copy the ones you want from the generated {source_path.name}"
+        )
+        return result
+    return _apply_python_tasks_append(
+        target_path, (target_text, target_tree), (source_text, source_tree), missing, result
+    )
+
+
+def _find_missing_python_tasks(
+    source_tree: ast.Module,
+    target_tree: ast.Module,
+) -> tuple[list[ast.FunctionDef | ast.AsyncFunctionDef], list[str]]:
+    """Return (missing_task_nodes, unimported_dependency_names)."""
     source_tasks = [
         node
         for node in source_tree.body
@@ -352,26 +408,23 @@ def merge_python_tasks(  # noqa: PLR0911  WHYNOT: each return is one guard of th
     declared = _bound_names(target_tree)
     missing = [node for node in source_tasks if node.name not in declared]
     if not missing:
-        result.notes.append("every template task is already present")
-        return result
+        return [], []
     needed = set().union(*(_definition_time_names(node) for node in missing))
     available = declared | set(dir(builtins)) | {node.name for node in missing}
     unimported = sorted(name for name in needed if name not in available)
-    if unimported:
-        result.reported = sorted(node.name for node in missing)
-        bindings = _imported_bindings(source_tree)
-        for name in unimported:
-            suggestion = f"; the generated file imports it as `{bindings[name]}`" if name in bindings else ""
-            result.notes.append(f"not appended: `{name}` is not defined in your file{suggestion}")
-        return result
-    if not append:
-        result.reported = sorted(node.name for node in missing)
-        result.notes.append(
-            "these are Python tasks, reported rather than appended; "
-            f"copy the ones you want from the generated {source_path.name}"
-        )
-        return result
+    return missing, unimported
 
+
+def _apply_python_tasks_append(
+    target_path: Path,
+    target: tuple[str, ast.Module],
+    source: tuple[str, ast.Module],
+    missing: list[ast.FunctionDef | ast.AsyncFunctionDef],
+    result: TextMerge,
+) -> TextMerge:
+    """Append missing Python task functions to target_path and rollback if AST corrupts."""
+    target_text, target_tree = target
+    source_text, source_tree = source
     before = _python_fragments(target_text, target_tree)
     fragments = dict(_python_fragments(source_text, source_tree))
     header = "# Added by daimonion (tools/adopt.py)"
@@ -477,6 +530,24 @@ def _workflow_jobs(text: str) -> dict[str, Any] | None:
     return jobs if isinstance(jobs, dict) else {}
 
 
+def _find_missing_ci_jobs(kept: list[str], dropped: list[str], target_text: str, result: TextMerge) -> list[str]:
+    """Identify read-only CI jobs absent from the target workflow, recording status notes."""
+    declared = set(_recipe_blocks(target_text, CI_JOB))
+    missing = [name for name in kept if name not in declared]
+    present = sorted(name for name in kept if name in declared)
+    if present:
+        result.notes.append(f"already in your workflow, left alone: {', '.join(present)}")
+    if dropped:
+        result.notes.append(CI_EXCLUDED_NOTE)
+    if not missing:
+        result.notes.append(
+            "every read-only template job is already present"
+            if kept
+            else "the generated workflow has no read-only jobs to add"
+        )
+    return missing
+
+
 def merge_ci_jobs(  # noqa: PLR0911  WHYNOT: each return is one guard of the report-vs-append decision, the shape the other merges share.
     target_ci: Path, source_ci: Path, *, append: bool = False
 ) -> TextMerge:
@@ -506,19 +577,8 @@ def merge_ci_jobs(  # noqa: PLR0911  WHYNOT: each return is one guard of the rep
     if _workflow_jobs(target_text) is None:
         result.notes.append(f"{target_ci} does not parse; nothing appended")
         return result
-    declared = set(_recipe_blocks(target_text, CI_JOB))
-    missing = [name for name in kept if name not in declared]
-    present = sorted(name for name in kept if name in declared)
-    if present:
-        result.notes.append(f"already in your workflow, left alone: {', '.join(present)}")
-    if dropped:
-        result.notes.append(CI_EXCLUDED_NOTE)
+    missing = _find_missing_ci_jobs(kept, dropped, target_text, result)
     if not missing:
-        result.notes.append(
-            "every read-only template job is already present"
-            if kept
-            else "the generated workflow has no read-only jobs to add"
-        )
         return result
     if not append or not _jobs_are_the_last_block(target_text):
         result.reported = sorted(missing)
@@ -530,7 +590,17 @@ def merge_ci_jobs(  # noqa: PLR0911  WHYNOT: each return is one guard of the rep
             "or keep copier-ci.yml alongside"
         )
         return result
+    return _apply_ci_jobs_append(target_ci, target_text, source_text, missing, result)
 
+
+def _apply_ci_jobs_append(
+    target_ci: Path,
+    target_text: str,
+    source_text: str,
+    missing: list[str],
+    result: TextMerge,
+) -> TextMerge:
+    """Append missing CI jobs to target_ci and rollback if YAML structure alters."""
     blocks = _recipe_blocks(source_text, CI_JOB)
     before = _workflow_jobs(target_text) or {}
     appended = target_text if target_text.endswith("\n") else target_text + "\n"

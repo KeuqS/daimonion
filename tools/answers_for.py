@@ -84,6 +84,7 @@ from tools import batch  # noqa: E402
 from tools import invariants  # noqa: E402
 from tools import predicates  # noqa: E402
 from tools.render_inputs import context_fingerprint  # noqa: E402
+from tools.render_inputs import read_yaml_mapping  # noqa: E402
 
 #: Where the render contexts are cached (see the module docstring for the key).
 CACHE = TOP / ".cache" / "answers-for"
@@ -310,6 +311,26 @@ def answers_yaml(answers: dict[str, Any]) -> str:
     return yaml.safe_dump(dict(sorted(answers.items())), sort_keys=False)
 
 
+def _format_matching_leaf_records(
+    matching: list[str], root: Path, matrix: invariants.Invariants, limit: int | None
+) -> list[dict[str, Any]]:
+    """Format the matching leaf records with answers, yaml snippet, and expected files."""
+    leaves = []
+    for leaf_id in matching[: limit if limit is not None else None]:
+        request = _request_for(leaf_id, root)
+        expect = matrix.expect_for(request.answers)
+        leaves.append(
+            {
+                "id": leaf_id,
+                "answers": request.answers,
+                "answers_yaml": answers_yaml(request.answers),
+                "ships": list(expect["files"]),
+                "absent": list(expect["absent"]),
+            }
+        )
+    return leaves
+
+
 def recommend(
     tokens: list[str],
     *,
@@ -330,19 +351,7 @@ def recommend(
     constraints = parse_constraints(tokens, known_names(contexts))
     matching, diagnostic = match(constraints, contexts)
     matrix = invariants_load(root)
-    leaves = []
-    for leaf_id in matching[: limit if limit is not None else None]:
-        request = _request_for(leaf_id, root)
-        expect = matrix.expect_for(request.answers)
-        leaves.append(
-            {
-                "id": leaf_id,
-                "answers": request.answers,
-                "answers_yaml": answers_yaml(request.answers),
-                "ships": list(expect["files"]),
-                "absent": list(expect["absent"]),
-            }
-        )
+    leaves = _format_matching_leaf_records(matching, root, matrix, limit)
     payload: dict[str, Any] = {
         "constraints": [constraint.raw for constraint in constraints],
         "matched": len(matching),
@@ -364,6 +373,32 @@ def _request_for(leaf_id: str, root: Path) -> batch.Request:
 def invariants_load(root: Path = TOP) -> invariants.Invariants:
     """The leaf-class matrix, read from the one file that owns it."""
     return invariants.load(root / "tests" / "matrix" / "invariants.yml")
+
+
+def _verify_rendered_constraints(
+    dest: Path, leaf_id: str, constraints: list[Constraint]
+) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """Verify constraint list against context derivation and artifact existence."""
+    answers_file = dest / ".copier-answers.yml"
+    if not answers_file.is_file():
+        return [], False, f"the render recorded no {answers_file.name}; nothing to prove against"
+    recorded = read_yaml_mapping(answers_file)
+    clean = {name: value for name, value in recorded.items() if not name.startswith("_")}
+    context = next(iter(predicates.leaf_contexts([_Recorded(leaf_id, clean)])))[1]
+    checks = []
+    for constraint in constraints:
+        kind, artifact_ok, detail = artifact_proof(constraint, dest)
+        checks.append(
+            {
+                "constraint": constraint.raw,
+                "context_ok": satisfied(constraint, context),
+                "artifact": kind,
+                "artifact_ok": artifact_ok,
+                "detail": detail,
+            }
+        )
+    ok = all(check["context_ok"] for check in checks) and all(check["artifact_ok"] for check in checks)
+    return checks, ok, None
 
 
 def prove_render(
@@ -403,30 +438,13 @@ def prove_render(
                 "error": result.error,
             }
         )
-        answers_file = dest / ".copier-answers.yml"
-        if not answers_file.is_file():
-            entry["error"] = f"the render recorded no {answers_file.name}; nothing to prove against"
+        checks, ok, error = _verify_rendered_constraints(dest, request.id, constraints)
+        entry["constraints"] = checks
+        if error:
+            entry["error"] = error
             entry["ok"] = False
-            return entry
-        recorded = yaml.safe_load(answers_file.read_text(encoding="utf-8"))
-        clean = {name: value for name, value in recorded.items() if not name.startswith("_")}
-        context = next(iter(predicates.leaf_contexts([_Recorded(request.id, clean)])))[1]
-        for constraint in constraints:
-            kind, artifact_ok, detail = artifact_proof(constraint, dest)
-            entry["constraints"].append(
-                {
-                    "constraint": constraint.raw,
-                    "context_ok": satisfied(constraint, context),
-                    "artifact": kind,
-                    "artifact_ok": artifact_ok,
-                    "detail": detail,
-                }
-            )
-        entry["ok"] = bool(
-            entry["ok"]
-            and all(check["context_ok"] for check in entry["constraints"])
-            and all(check["artifact_ok"] for check in entry["constraints"])
-        )
+        else:
+            entry["ok"] = bool(entry["ok"] and ok)
         return entry
     finally:
         entry["seconds"] = round(time.monotonic() - started, 3)

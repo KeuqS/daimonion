@@ -345,6 +345,28 @@ def _merge_identity(data: dict[str, Any], source: Path) -> tuple[str, ...]:
     return tuple(sorted(token for token in tokens if token))
 
 
+def _merge_pyproject(run: _Run, adoption: Adoption, source: Path, approved: frozenset[str]) -> None:
+    """Merge dependencies and tool configuration into pyproject.toml and check for corruption."""
+    target_pyproject = run.target / "pyproject.toml"
+    before_pyproject = run.backup.get("pyproject.toml") or (
+        target_pyproject.read_bytes() if target_pyproject.is_file() else None
+    )
+    merged = pyproject_merge.merge_dependencies(target_pyproject, source / "pyproject.toml")
+    adoption.deps = merged.as_dict()
+    adoption.notes.extend(merged.notes)
+    config = pyproject_merge.merge_tool_config(
+        target_pyproject,
+        source / "pyproject.toml",
+        identity=_merge_identity(run.data, source),
+        approved=approved,
+    )
+    adoption.tool_config = config.as_dict()
+    adoption.notes.extend(config.notes)
+    problem = merge_problem(target_pyproject, before_pyproject)
+    if problem:
+        raise _MergeError(problem)
+
+
 def merge_generated_files(
     run: _Run,
     adoption: Adoption,
@@ -366,24 +388,7 @@ def merge_generated_files(
     if source is None:
         source = render_fresh_source(run.data, run.ref)
     try:
-        target_pyproject = run.target / "pyproject.toml"
-        before_pyproject = run.backup.get("pyproject.toml") or (
-            target_pyproject.read_bytes() if target_pyproject.is_file() else None
-        )
-        merged = pyproject_merge.merge_dependencies(target_pyproject, source / "pyproject.toml")
-        adoption.deps = merged.as_dict()
-        adoption.notes.extend(merged.notes)
-        config = pyproject_merge.merge_tool_config(
-            target_pyproject,
-            source / "pyproject.toml",
-            identity=_merge_identity(run.data, source),
-            approved=approved,
-        )
-        adoption.tool_config = config.as_dict()
-        adoption.notes.extend(config.notes)
-        problem = merge_problem(target_pyproject, before_pyproject)
-        if problem:
-            raise _MergeError(problem)
+        _merge_pyproject(run, adoption, source, approved)
         _merge_text_files(run, adoption, source, approved_files=approved_files)
         _merge_ci_caller(run, adoption, source, approved_files=approved_files)
     finally:
@@ -697,6 +702,21 @@ def _restore(journal: _Journal) -> list[str]:
     return sorted(restored)
 
 
+def _unlink_created_files(target: Path, journal: _Journal) -> list[str]:
+    """Delete files and directories created during the run, crashing safely at checkpoints."""
+    removed = sorted(_files_under(target) - set(journal.existing) - {JOURNAL_NAME})
+    for relative in removed:
+        (target / relative).unlink()
+        # Crash point: a recovery killed while it deletes what the run created.
+        # The old bytes are all back by now, so what is in question is a subset
+        # of the run's own files, and the journal (dropped last) still names
+        # the ones this kill got to keep: the next `--recover` removes exactly
+        # the rest and no second time.
+        _crash_at("recover")
+    _remove_new_dirs(target, set(journal.dirs))
+    return removed
+
+
 def recover(target: Path) -> Recovery:
     """Undo an interrupted adoption from its journal, and remove the journal.
 
@@ -715,16 +735,7 @@ def recover(target: Path) -> Recovery:
         msg = f"{path} records {journal.target}, not {target}: recover it from the project it belongs to"
         raise AdoptError(msg)
     restored = _restore(journal)
-    removed = sorted(_files_under(target) - set(journal.existing) - {JOURNAL_NAME})
-    for relative in removed:
-        (target / relative).unlink()
-        # Crash point: a recovery killed while it deletes what the run created.
-        # The old bytes are all back by now, so what is in question is a subset
-        # of the run's own files, and the journal (dropped last) still names
-        # the ones this kill got to keep: the next `--recover` removes exactly
-        # the rest and no second time.
-        _crash_at("recover")
-    _remove_new_dirs(target, set(journal.dirs))
+    removed = _unlink_created_files(target, journal)
     _remove_journal(target)
     recovery = Recovery(
         target=str(target),
@@ -900,6 +911,100 @@ def _crash_on_write(phase: str, target: Path) -> Generator[None]:
         active[0] = False
 
 
+def _check_adopt_preconditions(target: Path, detection: detect.Detection) -> None:
+    """Verify the target can be adopted before any state is changed."""
+    _refuse_stale_journal(target)
+    if detection.mode == "update":
+        msg = "this project was already generated from this template: run `copier update` (or tools/batch.py)"
+        raise AdoptError(msg)
+    if detection.mode == "foreign":
+        msg = (
+            f"another copier template owns this project ({detection.foreign_src}); "
+            "pass takeover=True to replace its record"
+        )
+        raise OwnershipError(msg)
+
+
+def _init_adoption(
+    target: Path,
+    detection: detect.Detection,
+    resolved_ref: str,
+    reason: str,
+    skip: list[str] | None,
+) -> Adoption:
+    """Create the initial Adoption record with populated notes and skip list."""
+    adoption = Adoption(
+        target=str(target),
+        mode=detection.mode,
+        ref=resolved_ref,
+        ref_reason=reason,
+        skip=list(detection.skip if skip is None else skip),
+        notes=list(detection.notes),
+    )
+    if skip is None and detection.mode == "adopt" and not adoption.skip:
+        adoption.notes.append("no collisions: nothing existing would be replaced")
+    return adoption
+
+
+def _apply_dry_run_plan(
+    target: Path,
+    data: dict[str, Any],
+    adoption: Adoption,
+    detection: detect.Detection,
+    *,
+    merge_generated: bool,
+) -> Adoption:
+    """Calculate the dry-run plan without writing anything to disk."""
+    _plan_only(target, data, adoption.ref, adoption, detection)
+    if not merge_generated:
+        adoption.deps = None
+        adoption.tool_config = None
+        adoption.files_merged = []
+    return adoption
+
+
+def _apply_adoption_transaction(
+    run: _Run,
+    journal: _Journal,
+    adoption: Adoption,
+    *,
+    merge_generated: bool,
+    ask: Callable[[str], str] | None,
+) -> Adoption:
+    """Execute the transactional adoption: render, verify, merge, and clean up."""
+    target = run.target
+    with _signals_roll_back():
+        try:
+            _write_journal(target, journal)
+            with _crash_on_write("render", target), batch.report_stream_only():
+                batch.render(
+                    str(TOP),
+                    target,
+                    run.data,
+                    run.ref,
+                    skip_if_exists=tuple(adoption.skip),
+                    overwrite=False,
+                )
+            _crash_at("verify")
+            changed, removed, created = _verify(target, run.backup, run.existing | {JOURNAL_NAME})
+            if changed or removed:
+                problem = f"the render modified existing files ({', '.join([*changed, *removed][:5])})"
+                _undo_run(run, adoption, problem, "rolled back: the project is unchanged")
+                return adoption
+            adoption.ok = True
+            adoption.applied = True
+            adoption.created = created
+            adoption.unchanged = sorted(run.backup)
+            if merge_generated:
+                _finish_with_merges(run, adoption, ask)
+            _remove_journal(target)
+        except _Interrupted as exc:
+            _undo_run(run, adoption, f"{exc}; rolled back", "rolled back: the project is unchanged")
+        except Exception as exc:  # noqa: BLE001  WHYNOT: the render's own failure type and an unexpected one in the merge step are both rolled back, not raised.
+            _undo_run(run, adoption, f"{type(exc).__name__}: {exc}", "rolled back: the project is unchanged")
+    return adoption
+
+
 def adopt(  # noqa: PLR0913  WHYNOT: the keyword-only options are the operation's whole contract; a bag would hide them from the MCP tool schema.
     target: Path,
     *,
@@ -917,38 +1022,13 @@ def adopt(  # noqa: PLR0913  WHYNOT: the keyword-only options are the operation'
     before the first change and removed only when the run has committed or been
     rolled back, so `recover` can undo whatever a killed process left.
     """
-    _refuse_stale_journal(target)
     detection = detect.detect(target, takeover=takeover)
-    if detection.mode == "update":
-        msg = "this project was already generated from this template: run `copier update` (or tools/batch.py)"
-        raise AdoptError(msg)
-    if detection.mode == "foreign":
-        msg = (
-            f"another copier template owns this project ({detection.foreign_src}); "
-            "pass takeover=True to replace its record"
-        )
-        raise OwnershipError(msg)
-
+    _check_adopt_preconditions(target, detection)
     resolved_ref, reason = resolve_ref(ref)
-    adoption = Adoption(
-        target=str(target),
-        mode=detection.mode,
-        ref=resolved_ref,
-        ref_reason=reason,
-        skip=list(detection.skip if skip is None else skip),
-        notes=list(detection.notes),
-    )
-    if skip is None and detection.mode == "adopt" and not adoption.skip:
-        adoption.notes.append("no collisions: nothing existing would be replaced")
-
+    adoption = _init_adoption(target, detection, resolved_ref, reason, skip)
     data = _plan_data(detection, answers or {})
     if dry_run:
-        _plan_only(target, data, resolved_ref, adoption, detection)
-        if not merge_generated:
-            adoption.deps = None
-            adoption.tool_config = None
-            adoption.files_merged = []
-        return adoption
+        return _apply_dry_run_plan(target, data, adoption, detection, merge_generated=merge_generated)
 
     backup = _snapshot(target, sorted({*detection.kept, *detection.collisions, *MERGE_TARGETS}))
     before = _files_under(target)
@@ -963,37 +1043,7 @@ def adopt(  # noqa: PLR0913  WHYNOT: the keyword-only options are the operation'
         old=backup,
     )
     run = _Run(target=target, backup=backup, data=data, ref=resolved_ref, existing=before, before_dirs=before_dirs)
-    with _signals_roll_back():
-        try:
-            _write_journal(target, journal)
-            with _crash_on_write("render", target), batch.report_stream_only():
-                batch.render(
-                    str(TOP),
-                    target,
-                    data,
-                    resolved_ref,
-                    skip_if_exists=tuple(adoption.skip),
-                    overwrite=False,
-                )
-            _crash_at("verify")
-            # The journal is ours, not something the render created.
-            changed, removed, created = _verify(target, backup, before | {JOURNAL_NAME})
-            if changed or removed:
-                problem = f"the render modified existing files ({', '.join([*changed, *removed][:5])})"
-                _undo_run(run, adoption, problem, "rolled back: the project is unchanged")
-                return adoption
-            adoption.ok = True
-            adoption.applied = True
-            adoption.created = created
-            adoption.unchanged = sorted(backup)
-            if merge_generated:
-                _finish_with_merges(run, adoption, ask)
-            _remove_journal(target)
-        except _Interrupted as exc:
-            _undo_run(run, adoption, f"{exc}; rolled back", "rolled back: the project is unchanged")
-        except Exception as exc:  # noqa: BLE001  WHYNOT: the render's own failure type and an unexpected one in the merge step are both rolled back, not raised.
-            _undo_run(run, adoption, f"{type(exc).__name__}: {exc}", "rolled back: the project is unchanged")
-    return adoption
+    return _apply_adoption_transaction(run, journal, adoption, merge_generated=merge_generated, ask=ask)
 
 
 def _finish_with_merges(run: _Run, adoption: Adoption, ask: Callable[[str], str] | None) -> None:
@@ -1228,6 +1278,22 @@ def _prompter(args: argparse.Namespace) -> Callable[[str], str] | None:
     return confirm
 
 
+def _render_outcome_lines(adoption: Adoption) -> list[str]:
+    """Format the status and failure details of the adoption run."""
+    if adoption.cancelled:
+        return ["cancelled -- nothing was applied"]
+    if not adoption.applied and adoption.error is None:
+        return ["dry run -- nothing written"]
+    if adoption.error is not None:
+        lines = [f"FAILED: {adoption.error}"]
+        if adoption.restored:
+            lines.append(f"  restored: {', '.join(adoption.restored)}")
+        if adoption.removed:
+            lines.append(f"  removed what the run created: {len(adoption.removed)} file(s)")
+        return lines
+    return [f"adopted: {len(adoption.created)} file(s) added, {len(adoption.unchanged)} existing file(s) untouched"]
+
+
 def render_report(adoption: Adoption) -> str:
     """Human-readable plan and outcome."""
     lines = [
@@ -1238,20 +1304,7 @@ def render_report(adoption: Adoption) -> str:
     if adoption.skip:
         lines.append(f"skip:   {' '.join(adoption.skip)}")
     lines.append("")
-    if adoption.cancelled:
-        lines.append("cancelled -- nothing was applied")
-    elif not adoption.applied and adoption.error is None:
-        lines.append("dry run -- nothing written")
-    elif adoption.error is not None:
-        lines.append(f"FAILED: {adoption.error}")
-        if adoption.restored:
-            lines.append(f"  restored: {', '.join(adoption.restored)}")
-        if adoption.removed:
-            lines.append(f"  removed what the run created: {len(adoption.removed)} file(s)")
-    else:
-        lines.append(
-            f"adopted: {len(adoption.created)} file(s) added, {len(adoption.unchanged)} existing file(s) untouched"
-        )
+    lines.extend(_render_outcome_lines(adoption))
     merged = _merge_summary(adoption)
     if merged:
         heading = "merged into your files" if adoption.applied else "would merge into your files"

@@ -9,30 +9,61 @@ typing into a terminal:
 $ python3 --version
 ```
 
-## Create a virtual environment
+## Create the environment
 
-It is recommended that you install into a “virtual environment” so this
+It is recommended that you install into an isolated environment so this
 installation will not interfere with any existing Python software:
 
+{% if is_uv %}
 ```
-$ python3 -m venv /path/to/venv
-$ source /path/to/venv/bin/activate
+$ uv sync                      # create .venv and install everything (incl. dev deps)
 ```
+{% elif is_poetry %}
+```
+$ poetry install                # create .venv and install everything (incl. dev deps)
+```
+{% else %}
+```
+$ pixi install                  # create the pixi environment (dev feature included)
+```
+{% endif %}
 
 ## Installing the library
 
-You can now use `pip` to install the library and its dependencies:
+You can now install the library and its dependencies:
 
+{% if is_uv %}
 ```
-$ python3 -m pip install {{distribution_name}}
+$ pip install {{distribution_name}}
 ```
+{% elif is_poetry %}
+```
+$ poetry add {{distribution_name}}
+```
+{% else %}
+```
+# pixi project - the environment is managed by pixi
+$ pixi install
+```
+{% endif %}
 
 If you require a feature that is not currently released you can also install
 from github:
 
+{% if is_uv %}
 ```
-$ python3 -m pip install git+{{repo_url}}.git
+$ pip install git+{{repo_url}}.git
 ```
+{% elif is_poetry %}
+```
+$ poetry add git+{{repo_url}}.git
+```
+{% else %}
+```
+# pixi project - the environment is managed by pixi
+$ pixi install
+```
+{% endif %}
 
 The library should now be installed and the commandline interface on your path.
 You can check the version that has been installed by typing:

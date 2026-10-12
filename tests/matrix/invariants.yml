@@ -127,7 +127,9 @@ leaf_classes:
       - Dockerfile
       - justfile
       - .github/workflows/ci.yml
+      - .github/workflows/template-update.yml
       - CHANGELOG.md
+      - .daimonion-manifest.yml
     absent:
       - "**/*.jinja"
     markers:

@@ -29,10 +29,12 @@ next to the other structural rules):
                  detect, batch, adopt, the shared git runner (git), the
                  condition classifier built on the machinery (predicates),
                  the inverse selector that turns wanted features into
-                 witness answers (answers_for), and the questionnaire
-                 dependency graph built on the foundations (question_graph)
-    frontends    the entry points an agent or a human calls: cli, gen_docs,
-                 mcp_server
+                 witness answers (answers_for), the questionnaire
+                 dependency graph built on the foundations (question_graph),
+                 and the constrained proposal gate over copier's own pass
+                 (suggest)
+    frontends    the entry points an agent or a human calls: cli, explain,
+                 gen_docs, mcp_server
 
 The rule: a module may import modules of its own layer or any layer BELOW it.
 An import that points up fails here, unless the pair is declared in
@@ -94,13 +96,15 @@ LAYERS: dict[str, tuple[str, frozenset[str]]] = {
                 "predicates",
                 "question_graph",
                 "render_delta",
+                "suggest",
                 "update_rehearsal",
+                "verify",
             }
         ),
     ),
     "frontends": (
         "the entry points a human or an agent calls; consume the drivers",
-        frozenset({"cli", "gen_docs", "gen_ethics_appendix", "mcp_server"}),
+        frozenset({"cli", "explain", "gen_docs", "gen_ethics_appendix", "mcp_server"}),
     ),
 }
 

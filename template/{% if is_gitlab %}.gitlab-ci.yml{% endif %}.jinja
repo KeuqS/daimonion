@@ -10,14 +10,14 @@ stages:
   - docs
 
 image: python:3.12
-{% if task_runner_effective == 'task' %}
+{% if runner_task %}
 # https://taskfile.dev/installation/
 .before_tasks:
   before_script:
     - pip install uv
     - uv sync --locked
     - sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-{%- elif task_runner_effective == 'just' %}
+{%- elif runner_just %}
 # https://just.systems/man/en/pre-built-binaries.html
 .before_just:
   before_script:
@@ -36,14 +36,14 @@ image: python:3.12
     - pip install uv
     - uv sync --locked
 {%- endif %}
-{% set type_check = " type-check" if strictness in ['recommended', 'full'] else "" %}
-{% set license_check_task = " license-check" if strictness in ['recommended', 'full'] and license_check_effective else "" %}
+{% set type_check = " type-check" if not strictness_minimal else "" %}
+{% set license_check_task = " license-check" if not strictness_minimal and license_check_effective else "" %}
 lint:
   stage: lint
   extends: .before_{{ task_runner_effective }}
   script:
 {%- if task_runner_effective == 'poe' %}
-    - poe lint{% if strictness in ['recommended', 'full'] %} && poe type-check{% endif %}{{ " && poe license-check" if strictness in ['recommended', 'full'] and license_check_effective else "" }}
+    - poe lint{% if not strictness_minimal %} && poe type-check{% endif %}{{ " && poe license-check" if not strictness_minimal and license_check_effective else "" }}
 {%- else %}
     - {{ task_runner_effective }} lint{{ type_check }}{{ license_check_task }}
 {%- endif %}

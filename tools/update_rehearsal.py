@@ -47,7 +47,6 @@ from pathlib import Path
 from typing import Any
 
 import copier
-import yaml
 
 TOP = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TOP))
@@ -55,6 +54,8 @@ sys.path.insert(0, str(TOP))
 from tools import batch  # noqa: E402
 from tools import git  # noqa: E402
 from tools.check_questionnaire_diff import release_tag  # noqa: E402
+from tools.render_inputs import digest_bytes  # noqa: E402
+from tools.render_inputs import read_yaml_mapping  # noqa: E402
 
 CACHE = TOP / ".cache" / "update-rehearsal"
 WITNESSES = TOP / "tests" / "matrix" / "witnesses.jsonl"
@@ -69,10 +70,12 @@ class LeafVerdict:
     failed: list[str]
     convergence: list[str]  # update-vs-fresh-render divergences (informational)
     skipped: str | None = None  # set when the leaf cannot exist at the base ref
+    runner_error: bool = False  # the rehearsal itself crashed; nothing about the leaf was proven
 
 
 def _sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    """The sha256 hex digest (the one byte-hash, shared with the render twin)."""
+    return digest_bytes(data)
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -98,7 +101,7 @@ def _read_leaves() -> dict[str, dict[str, Any]]:
 
 
 def _answers(project: Path) -> dict[str, Any]:
-    return yaml.safe_load((project / batch.ANSWERS_FILE).read_text(encoding="utf-8"))
+    return read_yaml_mapping(project / batch.ANSWERS_FILE)
 
 
 def _conflict_residue(project: Path) -> list[str]:
@@ -121,10 +124,10 @@ def _conflict_residue(project: Path) -> list[str]:
 
 
 def _manifest(project: Path) -> dict[str, str]:
-    """{relpath: sha256} with the answers file's per-render stamps removed.
+    """{relpath: sha256} with the render records' per-render stamps removed.
 
-    batch.strip_render_stamps is the one normalization (RENDER_STAMPS the one
-    stamp list, shared with the render twin and the MCP server).
+    batch.strip_render_stamps is the one normalization (RENDER_STAMPS plus
+    MANIFEST_STAMPS the one stamp list, shared with the render twin and the MCP server).
     """
     manifest: dict[str, str] = {}
     for path in sorted(project.rglob("*")):
@@ -132,7 +135,7 @@ def _manifest(project: Path) -> dict[str, str]:
             continue
         rel = path.relative_to(project).as_posix()
         data = path.read_bytes()
-        if rel == batch.ANSWERS_FILE:
+        if rel in (batch.ANSWERS_FILE, batch.MANIFEST_FILE):
             data = batch.strip_render_stamps(data)
         manifest[rel] = _sha(data)
     return manifest
@@ -199,37 +202,148 @@ class _Job:
     fresh: bool
 
 
+#: Transient-workspace crashes a single leaf retry may outlive. copier's
+#: update renders into a TemporaryDirectory whose cleanup races git's own
+#: .git writes under parallel workers ("Directory not empty: '.git'" --
+#: and since 2026-10-11, "'pack'" from a concurrent repack). 2026-10-11's
+#: run hit the race twice in a row on one leaf, so one retry is not enough.
+_REHEARSE_ATTEMPTS = 3
+
+
+def _rehearse_once(job: _Job, work: Path) -> LeafVerdict:
+    """One rehearsal attempt against one workspace (its own retry unit)."""
+    return rehearse_leaf(
+        job.leaf_id,
+        job.answers,
+        base_rev=job.base_rev,
+        target_rev=job.target_rev,
+        target_dirty=job.target_dirty,
+        renders=ReleasedRenders(job.base_ref, job.base_rev, copier.__version__),
+        fresh_render_available=job.fresh,
+        work=work,
+    )
+
+
+def _runner_error_verdict(job: _Job, exc: OSError) -> LeafVerdict:
+    """The verdict for a rehearsal that crashed before it could prove anything.
+
+    Returned, not raised: the pool's other verdicts must still reach the
+    report (2026-10-11's run lost all of them to an unhandled Errno 39), and
+    CI reads "a leaf crashed" as a signal, not as silence. runner_error
+    keeps the crash distinguishable from a leaf that genuinely failed the
+    update checks.
+    """
+    return LeafVerdict(
+        leaf_id=job.leaf_id,
+        ok=False,
+        failed=[f"runner error: {exc}"],
+        convergence=[],
+        runner_error=True,
+    )
+
+
 def _rehearse_job(job: _Job) -> LeafVerdict:
-    """Module-level entry for the process pool (closures do not pickle)."""
+    """Module-level entry for the process pool (closures do not pickle).
+
+    Retries transient workspace crashes on a fresh directory each attempt;
+    a crash that outlives every attempt becomes a runner_error verdict
+    rather than killing the whole pool's report.
+    """
     work = Path(tempfile.mkdtemp(prefix=f"rehearsal-{job.leaf_id.replace('/', '__')}-"))
     try:
-        for attempt in (1, 2):
+        for attempt in range(1, _REHEARSE_ATTEMPTS + 1):
             try:
-                return rehearse_leaf(
-                    job.leaf_id,
-                    job.answers,
-                    base_rev=job.base_rev,
-                    target_rev=job.target_rev,
-                    target_dirty=job.target_dirty,
-                    renders=ReleasedRenders(job.base_ref, job.base_rev, copier.__version__),
-                    fresh_render_available=job.fresh,
-                    work=work,
-                )
-            except OSError:
-                # copier's update renders into a TemporaryDirectory whose
-                # cleanup races git's own .git writes under parallel workers
-                # ("Directory not empty: '.git'"). Transient: retry once on a
-                # fresh workspace before letting it count as a failure.
-                if attempt == 2:
-                    raise
+                return _rehearse_once(job, work)
+            except OSError as exc:
+                if attempt == _REHEARSE_ATTEMPTS:
+                    return _runner_error_verdict(job, exc)
                 shutil.rmtree(work, ignore_errors=True)
                 work = Path(tempfile.mkdtemp(prefix=f"rehearsal-{job.leaf_id.replace('/', '__')}-"))
-        raise AssertionError("unreachable")  # the loop always returns or raises
+        raise AssertionError("unreachable")  # the loop always returns
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def rehearse_leaf(  # noqa: PLR0913 C901  WHYNOT: the arguments are the replay's own coordinates and each branch is one soundness rule; a bag object would hide the union.
+def _init_base_project(
+    project: Path,
+    leaf_id: str,
+    answers: dict[str, Any],
+    renders: ReleasedRenders,
+    base_rev: str,
+) -> tuple[str, str | None]:
+    """Render base reference and commit it; return (recorded_commit, skip_reason)."""
+    try:
+        renders.render(leaf_id, answers, project)
+    except ValueError as exc:
+        return "", str(exc)
+    recorded = _answers(project).get("_commit", "")
+    snapshot = batch.git_snapshot(
+        project,
+        leaf_id,
+        message=f"scaffold from {base_rev}",
+        branch="main",
+        user="rehearsal",
+        email="rehearsal@example.com",
+    )
+    assert snapshot.ok, f"{snapshot.name} failed in {project}:\n{snapshot.detail}"
+    return recorded, None
+
+
+def _check_commit_advanced(
+    project: Path, recorded: str, target_rev: str, base_rev: str, *, target_dirty: bool
+) -> list[str]:
+    """Check (c): answers record advanced revision as described by git."""
+    failed: list[str] = []
+    updated = _answers(project).get("_commit", "")
+    describe = _git_out(TOP, "describe", "--tags", "--always").strip()
+    if not updated:
+        failed.append("copier must record the template revision it rendered")
+    elif target_rev != base_rev:
+        if updated == recorded:
+            failed.append("the update did not move off the released revision")
+        if not target_dirty and updated != describe:
+            failed.append(f"a clean template tree must record exactly {describe!r}, got {updated!r}")
+    elif not target_dirty and updated != recorded:
+        failed.append("target equals the base revision: the update should have been a no-op")
+    return failed
+
+
+def _check_update_soundness(
+    project: Path,
+    recorded: str,
+    target_rev: str,
+    base_rev: str,
+    *,
+    target_dirty: bool,
+) -> list[str]:
+    """Execute all three soundness checks: residue, diff clean, and commit advanced."""
+    failed: list[str] = []
+    residue = _conflict_residue(project)
+    if residue:
+        failed.append(f"conflict residue: {residue}")
+
+    _git_out(project, "add", "-A")
+    check = _git(project, "diff", "--cached", "--check")
+    if check.returncode != 0 or check.stdout:
+        failed.append(f"`git diff --check` flagged the update: {check.stdout}{check.stderr}")
+
+    failed.extend(_check_commit_advanced(project, recorded, target_rev, base_rev, target_dirty=target_dirty))
+    return failed
+
+
+def _check_convergence(
+    project: Path, answers: dict[str, Any], work: Path, *, fresh_render_available: bool
+) -> list[str]:
+    if not fresh_render_available:
+        return []
+    fresh = work / "fresh"
+    fresh.parent.mkdir(parents=True, exist_ok=True)
+    batch.render(str(TOP), fresh, dict(answers), "HEAD", skip_tasks=True)
+    before, after = _manifest(fresh), _manifest(project)
+    return [rel for rel in sorted(set(before) | set(after)) if before.get(rel) != after.get(rel)]
+
+
+def rehearse_leaf(  # noqa: PLR0913  WHYNOT: the arguments are the replay's own coordinates; a bag object would hide the parameters.
     leaf_id: str,
     answers: dict[str, Any],
     *,
@@ -242,31 +356,10 @@ def rehearse_leaf(  # noqa: PLR0913 C901  WHYNOT: the arguments are the replay's
 ) -> LeafVerdict:
     project = work / "project"
     project.mkdir(parents=True)
-    try:
-        renders.render(leaf_id, answers, project)
-    except ValueError as exc:
-        # Schema drift: the leaf's answers name a choice the released
-        # questionnaire did not have (e.g. an oj_kind added after the tag).
-        # No user could have rendered this configuration at the base ref, so
-        # there is nothing to update *from* -- the leaf is skipped, not failed.
-        return LeafVerdict(leaf_id=leaf_id, ok=True, failed=[], convergence=[], skipped=str(exc))
-    recorded = _answers(project).get("_commit", "")
+    recorded, skip_reason = _init_base_project(project, leaf_id, answers, renders, base_rev)
+    if skip_reason is not None:
+        return LeafVerdict(leaf_id=leaf_id, ok=True, failed=[], convergence=[], skipped=skip_reason)
 
-    # The state a user's repo is in after `copier copy`: one commit. The
-    # snapshot helper is batch.git_snapshot's, and an unusable snapshot stays
-    # a crash (like the _git_out asserts) rather than a verdict: without the
-    # commit no later check means anything.
-    snapshot = batch.git_snapshot(
-        project,
-        leaf_id,
-        message=f"scaffold from {base_rev}",
-        branch="main",
-        user="rehearsal",
-        email="rehearsal@example.com",
-    )
-    assert snapshot.ok, f"{snapshot.name} failed in {project}:\n{snapshot.detail}"
-
-    failed: list[str] = []
     copier.run_update(
         dst_path=project,
         vcs_ref="HEAD",
@@ -275,44 +368,8 @@ def rehearse_leaf(  # noqa: PLR0913 C901  WHYNOT: the arguments are the replay's
         overwrite=True,
         skip_tasks=True,
     )
-
-    # (a) copier's merge left no unresolved hunk behind.
-    residue = _conflict_residue(project)
-    if residue:
-        failed.append(f"conflict residue: {residue}")
-
-    # (b) nothing the update wrote trips git's whitespace/conflict check; the
-    # update's new files are staged first or `git diff` would not see them.
-    _git_out(project, "add", "-A")
-    check = _git(project, "diff", "--cached", "--check")
-    if check.returncode != 0 or check.stdout:
-        failed.append(f"`git diff --check` flagged the update: {check.stdout}{check.stderr}")
-
-    # (c) the answers record the revision the update rendered -- as git
-    # describes it (copier records `6.0.0-127-g<sha>`, not a raw sha).
-    updated = _answers(project).get("_commit", "")
-    describe = _git_out(TOP, "describe", "--tags", "--always").strip()
-    if not updated:
-        failed.append("copier must record the template revision it rendered")
-    elif target_rev != base_rev:
-        if updated == recorded:
-            failed.append("the update did not move off the released revision")
-        if not target_dirty and updated != describe:
-            failed.append(f"a clean template tree must record exactly {describe!r}, got {updated!r}")
-    elif not target_dirty and updated != recorded:
-        failed.append("target equals the base revision: the update should have been a no-op")
-
-    # Informational: does the updated tree converge to a fresh render at the
-    # target? Divergence is a map of what update does differently -- studied,
-    # not failed. Only meaningful when a fresh render of this leaf is cached.
-    convergence: list[str] = []
-    if fresh_render_available:
-        fresh = work / "fresh"
-        fresh.parent.mkdir(parents=True, exist_ok=True)
-        batch.render(str(TOP), fresh, dict(answers), "HEAD", skip_tasks=True)
-        before, after = _manifest(fresh), _manifest(project)
-        convergence.extend(rel for rel in sorted(set(before) | set(after)) if before.get(rel) != after.get(rel))
-
+    failed = _check_update_soundness(project, recorded, target_rev, base_rev, target_dirty=target_dirty)
+    convergence = _check_convergence(project, answers, work, fresh_render_available=fresh_render_available)
     return LeafVerdict(leaf_id=leaf_id, ok=not failed, failed=failed, convergence=convergence)
 
 
@@ -344,6 +401,7 @@ def run(
         verdicts = list(pool.map(_rehearse_job, jobs_to_run))
 
     failures = [v for v in verdicts if not v.ok]
+    runner_errors = [v.leaf_id for v in verdicts if v.runner_error]
     skipped = {v.leaf_id: v.skipped for v in verdicts if v.skipped is not None}
     convergence = {v.leaf_id: v.convergence for v in verdicts if v.convergence}
     # the pool workers each hold their own counters; the cache is the one place
@@ -354,9 +412,10 @@ def run(
         "base_rev": base_rev,
         "target": target_ref,
         "target_rev": target_rev,
-        "rehearsed": len(verdicts) - len(skipped),
+        "rehearsed": len(verdicts) - len(skipped) - len(runner_errors),
         "skipped": skipped,
         "failures": {v.leaf_id: v.failed for v in failures},
+        "runner_errors": runner_errors,
         "convergence": convergence,
         "renders": {"cached": rendered_done, "fresh": renders.renders, "reused": renders.reuses},
     }

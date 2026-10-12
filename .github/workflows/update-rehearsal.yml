@@ -84,13 +84,14 @@ jobs:
           try:
               report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
               failures = len(report["failures"])
+              runner_errors = len(report.get("runner_errors", []))
               skipped = len(report["skipped"])
           except Exception as exc:  # the crash is itself what the summary must show
               print(f"No report reached the summary: {exc.__class__.__name__}: {exc}")
           else:
-              print("| Rehearsed | Failed | Skipped |")
-              print("|---|---|---|")
-              print(f"| {report['rehearsed']} | {failures} | {skipped} |")
+              print("| Rehearsed | Failed | Runner errors | Skipped |")
+              print("|---|---|---|---|")
+              print(f"| {report['rehearsed']} | {failures} | {runner_errors} | {skipped} |")
               print()
               print(f"{report['base']} ({report['base_rev'][:10]}) -> "
                     f"{report['target']} ({report['target_rev'][:10]})")

@@ -141,6 +141,62 @@ def _hand_wiring_note(label: str, section: Any, entries: Iterable[str]) -> str:
     return f"{label} is not a list or table ({type(section).__name__}); add these by hand: {', '.join(sorted(entries))}"
 
 
+def _add_missing_to_mapping(
+    target_section: Any,
+    entries: dict[str, str],
+    section: str,
+    label: str | None,
+    result: MergeResult,
+) -> None:
+    """Append missing mapping requirements to a table (e.g. Poetry style)."""
+    if not isinstance(target_section, dict):
+        result.notes.append(_hand_wiring_note(label or f"[{section}]", target_section, entries))
+        return
+    kept: list[str] = []
+    added: list[str] = []
+    present = {canonical(str(name)) for name in target_section}
+    for name, value in entries.items():
+        key = canonical(str(name))
+        if key in present:
+            kept.append(str(name))
+            continue
+        target_section[str(name)] = value
+        present.add(key)
+        added.append(str(name))
+    if added:
+        result.added[section] = added
+    if kept:
+        result.kept[section] = kept
+
+
+def _add_missing_to_sequence(
+    target_section: Any,
+    entries: list[str],
+    section: str,
+    label: str | None,
+    result: MergeResult,
+) -> None:
+    """Append missing string requirements to a list (PEP 621 style)."""
+    if not isinstance(target_section, list):
+        result.notes.append(_hand_wiring_note(label or f"[{section}]", target_section, entries))
+        return
+    kept: list[str] = []
+    added: list[str] = []
+    present = {canonical(str(item)) for item in target_section}
+    for entry in entries:
+        key = canonical(entry)
+        if key in present:
+            kept.append(entry)
+            continue
+        target_section.append(entry)
+        present.add(key)
+        added.append(entry)
+    if added:
+        result.added[section] = added
+    if kept:
+        result.kept[section] = kept
+
+
 def _add_missing(
     target_section: Any,
     entries: list[str] | dict[str, str],
@@ -148,46 +204,11 @@ def _add_missing(
     section: str,
     label: str | None = None,
 ) -> None:
-    """Append requirements the target does not declare; record what was kept.
-
-    Two container shapes: a PEP 621 array of requirement strings, or a table
-    (`name = "spec"`) as Poetry writes it. Only names that are absent are
-    added, and a table key is never rewritten. A section with any other shape
-    (the file parsed, but the value is a string or an integer) is refused with
-    a note instead of raising from the middle of the append.
-    """
-    kept: list[str] = []
-    added: list[str] = []
+    """Append requirements the target does not declare; record what was kept."""
     if isinstance(entries, dict):
-        if not isinstance(target_section, dict):
-            result.notes.append(_hand_wiring_note(label or f"[{section}]", target_section, entries))
-            return
-        present = {canonical(str(name)) for name in target_section}
-        for name, value in entries.items():
-            key = canonical(str(name))
-            if key in present:
-                kept.append(str(name))
-                continue
-            target_section[str(name)] = value
-            present.add(key)
-            added.append(str(name))
+        _add_missing_to_mapping(target_section, entries, section, label, result)
     else:
-        if not isinstance(target_section, list):
-            result.notes.append(_hand_wiring_note(label or f"[{section}]", target_section, entries))
-            return
-        present = {canonical(str(item)) for item in target_section}
-        for entry in entries:
-            key = canonical(entry)
-            if key in present:
-                kept.append(entry)
-                continue
-            target_section.append(entry)
-            present.add(key)
-            added.append(entry)
-    if added:
-        result.added[section] = added
-    if kept:
-        result.kept[section] = kept
+        _add_missing_to_sequence(target_section, entries, section, label, result)
 
 
 def _differing(target_section: Any, template: list[str]) -> list[str]:
@@ -262,6 +283,46 @@ def _merge_poetry(document: Any, source: dict[str, Any], result: MergeResult) ->
             _add_missing(table, translated["dev"], result, "dev", "[tool.poetry.group.dev.dependencies]")
 
 
+def _load_pyproject_merge_documents(
+    target_path: Path, source_path: Path, result: MergeResult
+) -> tuple[tomlkit.TOMLDocument | None, dict[str, Any] | None]:
+    """Load and parse target and source pyproject files, recording notes on failure."""
+    if not target_path.is_file():
+        result.notes.append(f"{target_path} does not exist; nothing to merge")
+        return None, None
+    if not source_path.is_file():
+        result.notes.append(f"{source_path} does not exist; nothing to merge")
+        return None, None
+    try:
+        document = tomlkit.parse(target_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001  WHYNOT: tomlkit raises its own parse errors; the caller reports them.
+        result.notes.append(f"{target_path} does not parse ({exc}); left untouched")
+        return None, None
+    try:
+        source = tomllib.loads(source_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        result.notes.append(f"{source_path} does not parse ({exc}); nothing to merge")
+        return None, None
+    return document, source
+
+
+def _dispatch_dependency_merge(document: tomlkit.TOMLDocument, source: dict[str, Any], result: MergeResult) -> bool:
+    """Merge dependencies according to target style (PEP 621 or Poetry); return True if recognized."""
+    if isinstance(document.get("project"), dict):
+        _merge_pep621(document, source, result)
+        return True
+    if isinstance(document.get("tool"), dict) and "poetry" in document["tool"]:
+        _merge_poetry(document, source, result)
+        return True
+    result.style = "none"
+    template = _source_requirements(source)
+    result.notes.append(
+        "no [project] or [tool.poetry] table to merge into; add these by hand: "
+        + ", ".join(template.get("runtime", []) + template.get("dev", []))
+    )
+    return False
+
+
 def merge_dependencies(target_path: Path, source_path: Path, *, apply: bool = True) -> MergeResult:
     """Add the template's missing dependencies to `target_path`.
 
@@ -269,35 +330,11 @@ def merge_dependencies(target_path: Path, source_path: Path, *, apply: bool = Tr
     (tools/adopt.py) uses that for its dry run and for its report.
     """
     result = MergeResult(target=str(target_path))
-    if not target_path.is_file():
-        result.notes.append(f"{target_path} does not exist; nothing to merge")
-        return result
-    if not source_path.is_file():
-        result.notes.append(f"{source_path} does not exist; nothing to merge")
+    document, source = _load_pyproject_merge_documents(target_path, source_path, result)
+    if document is None or source is None:
         return result
 
-    try:
-        document = tomlkit.parse(target_path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001  WHYNOT: tomlkit raises its own parse errors; the caller reports them.
-        result.notes.append(f"{target_path} does not parse ({exc}); left untouched")
-        return result
-    try:
-        source = tomllib.loads(source_path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        result.notes.append(f"{source_path} does not parse ({exc}); nothing to merge")
-        return result
-
-    if isinstance(document.get("project"), dict):
-        _merge_pep621(document, source, result)
-    elif isinstance(document.get("tool"), dict) and "poetry" in document["tool"]:
-        _merge_poetry(document, source, result)
-    else:
-        result.style = "none"
-        template = _source_requirements(source)
-        result.notes.append(
-            "no [project] or [tool.poetry] table to merge into; add these by hand: "
-            + ", ".join(template.get("runtime", []) + template.get("dev", []))
-        )
+    if not _dispatch_dependency_merge(document, source, result):
         return result
 
     if not result.added_names:
@@ -416,6 +453,31 @@ def _merge_config_key(target_table: Any, key: str, value: Any, key_path: str, co
     context.result.kept.append(f"{key_path}: kept {existing!r} (template: {value!r})")
 
 
+def _load_tool_documents(
+    target_path: Path, source_path: Path, result: ConfigMerge
+) -> tuple[tomlkit.TOMLDocument | None, dict[str, Any] | None]:
+    """Load and parse target and source documents for tool config merging."""
+    if not target_path.is_file() or not source_path.is_file():
+        return None, None
+    try:
+        document = tomlkit.parse(target_path.read_text(encoding="utf-8"))
+        source = tomllib.loads(source_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001  WHYNOT: tomlkit and tomllib raise their own parse errors; the caller reports them.
+        result.notes.append(f"tool config not merged ({exc})")
+        return None, None
+    return document, source
+
+
+def _finalize_tool_merge_notes(result: ConfigMerge) -> None:
+    """Add explanatory notes for skipped tables and no-op merges."""
+    if result.skipped_tables:
+        result.notes.append(
+            "not merged (build/environment config; wire by hand if you want it): " + ", ".join(result.skipped_tables)
+        )
+    if not result.added and not result.kept and not result.needs_your_value:
+        result.notes.append("no tool config to add")
+
+
 def merge_tool_config(
     target_path: Path,
     source_path: Path,
@@ -433,13 +495,8 @@ def merge_tool_config(
     template's layout and index choices, not a lint preference.
     """
     result = ConfigMerge()
-    if not target_path.is_file() or not source_path.is_file():
-        return result
-    try:
-        document = tomlkit.parse(target_path.read_text(encoding="utf-8"))
-        source = tomllib.loads(source_path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001  WHYNOT: tomlkit and tomllib raise their own parse errors; the caller reports them.
-        result.notes.append(f"tool config not merged ({exc})")
+    document, source = _load_tool_documents(target_path, source_path, result)
+    if document is None or source is None:
         return result
     source_tool = source.get("tool")
     if not isinstance(source_tool, dict) or not source_tool:
@@ -452,12 +509,7 @@ def merge_tool_config(
         "tool",
         _ConfigContext(table_path="tool", identity=tuple(identity), result=result, approved=approved),
     )
-    if result.skipped_tables:
-        result.notes.append(
-            "not merged (build/environment config; wire by hand if you want it): " + ", ".join(result.skipped_tables)
-        )
-    if not result.added and not result.kept and not result.needs_your_value:
-        result.notes.append("no tool config to add")
+    _finalize_tool_merge_notes(result)
     if apply and (result.added or result.notes):
         target_path.write_text(tomlkit.dumps(document), encoding="utf-8")
         result.applied = True

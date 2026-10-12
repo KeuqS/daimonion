@@ -87,7 +87,9 @@
 - `daimonion.dev` ドメイン取得（現在 NXDOMAIN、低優先）
 - 内部メモ用 private リポ/Wiki（§40: `notes/outreach/`・`copier-fork/`・本ファイルの移設先）
 - 定期リリース周期（§40。現在 PR 経由の運用は開始済み）
-- push protection の再有効化（Phase 2 の注意書き参照）
+- push protection の再有効化（Phase 2 の注意書き参照）— 2026-10-09 レビューで優先度上げ:
+  `GITLEAKS_LICENSE` 欠落で gitleaks も赤のため、現在は秘密情報検知が二重に停止中。
+  履歴の疑似値を allowlist 化して早期に再有効化（TODO.md §41）
 - showcase 用の自プロジェクト選定（Phase 4）
 
 ## Phase 3: 対外発信（ローンチ後 2〜4週間）

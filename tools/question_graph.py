@@ -293,17 +293,11 @@ def _placement_note(kind: str, *, exists: bool) -> str:
     )
 
 
-def place(graph: Graph, name: str, ref_names: list[str], kind: str) -> Placement:
-    """Compute the placement window for ``name`` (an existing definition, or a new one + its refs).
-
-    An existing name uses its own edges as the refs (``ref_names`` ignored):
-    its window is closed on both sides, because it cannot move before a
-    definition it reads nor after its first dependent. A new name has no
-    dependents yet, so only the lower bound applies.
-    """
+def _resolve_placement_refs(
+    graph: Graph, name: str, ref_names: list[str], *, exists: bool
+) -> tuple[list[Node], list[str]]:
+    """Resolve reference names into sorted internal Node objects and unknown external names."""
     by_name = graph.by_name
-    node = by_name.get(name)
-    exists = node is not None
     if exists and not ref_names:
         ref_names = [edge.target for edge in graph.edges if edge.source == name and edge.target != name]
     seen: set[str] = set()
@@ -318,23 +312,43 @@ def place(graph: Graph, name: str, ref_names: list[str], kind: str) -> Placement
         else:
             external_refs.append(ref_name)
     refs.sort(key=lambda ref: ref.order)
+    return refs, sorted(external_refs)
 
+
+def _calculate_placement_bounds(refs: list[Node], name: str, *, exists: bool, graph: Graph) -> tuple[int, int]:
+    """Compute the earliest and latest legal order indices for a node."""
     last_ref = max((ref.order for ref in refs), default=-1)
-    dependent_orders = [by_name[dep].order for dep in graph.dependents().get(name, [])] if exists else []
     earliest = last_ref + 1
-    latest = (
-        max(min(dependent_orders, default=len(graph.nodes)) - 1, earliest)
-        if exists
-        else len(graph.nodes)  # the append-at-the-end slot
-    )
+    if exists:
+        dependent_orders = [graph.by_name[dep].order for dep in graph.dependents().get(name, [])]
+        latest = max(min(dependent_orders, default=len(graph.nodes)) - 1, earliest)
+    else:
+        latest = len(graph.nodes)
+    return earliest, max(latest, earliest)
+
+
+def place(graph: Graph, name: str, ref_names: list[str], kind: str) -> Placement:
+    """Compute the placement window for ``name`` (an existing definition, or a new one + its refs).
+
+    An existing name uses its own edges as the refs (``ref_names`` ignored):
+    its window is closed on both sides, because it cannot move before a
+    definition it reads nor after its first dependent. A new name has no
+    dependents yet, so only the lower bound applies.
+    """
+    by_name = graph.by_name
+    node = by_name.get(name)
+    exists = node is not None
+    refs, external_refs = _resolve_placement_refs(graph, name, ref_names, exists=exists)
+    earliest, latest = _calculate_placement_bounds(refs, name, exists=exists, graph=graph)
+
     return Placement(
         name=name,
         kind=node.kind if exists else kind,
         exists=exists,
         refs=refs,
-        external_refs=sorted(external_refs),
+        external_refs=external_refs,
         earliest=earliest,
-        latest=max(latest, earliest),
+        latest=latest,
         occupant=graph.nodes[earliest] if earliest < len(graph.nodes) else None,
         insert_fragment=_insert_fragment(graph, earliest),
         current=node,
@@ -432,22 +446,7 @@ def report(graph: Graph, violations: list[Violation]) -> str:
         "",
     ]
     for fragment, nodes in by_fragment.items():
-        first, last = nodes[0].order, nodes[-1].order
-        span = f"order {first}" if first == last else f"orders {first}-{last}"
-        lines.append(f"{fragment} ({span}, {len(nodes)} definitions)")
-        for node in nodes:
-            # one entry per referenced name even when both fields read it (when + default)
-            read_names = {edge.target for edge in graph.edges if edge.source == node.name and edge.target != node.name}
-            reads = sorted(
-                read_names,
-                key=lambda name: graph.by_name[name].order if name in graph.by_name else len(graph.nodes),
-            )
-            lines.append(
-                f"  {node.order:>4}  {node.kind:<8} {node.name:<32} :{node.line:<4}"
-                f" reads: {_cap(reads, 5) if reads else '-'}"
-            )
-            if dependents[node.name]:
-                lines.append(f"       {'':<8} {'':<32} feeds: {_cap(dependents[node.name], 6)}")
+        lines.extend(_format_fragment_section(fragment, nodes, graph, dependents))
         lines.append("")
     if externals:
         lines.append(
@@ -469,17 +468,8 @@ def json_report(graph: Graph, violations: list[Violation], placement: Placement 
     dependents = graph.dependents()
     externals = graph.externals()
 
-    def node_dict(node: Node) -> dict[str, object]:
-        return {
-            "name": node.name,
-            "kind": node.kind,
-            "fragment": node.fragment,
-            "line": node.line,
-            "order": node.order,
-        }
-
     report_data: dict[str, object] = {
-        "nodes": [node_dict(node) for node in graph.nodes],
+        "nodes": [_serialize_node(node) for node in graph.nodes],
         "edges": [
             {
                 "source": edge.source,
@@ -503,21 +493,59 @@ def json_report(graph: Graph, violations: list[Violation], placement: Placement 
         ],
     }
     if placement is not None:
-        report_data["placement"] = {
-            "name": placement.name,
-            "kind": placement.kind,
-            "exists": placement.exists,
-            "refs": [node_dict(ref) for ref in placement.refs],
-            "external_refs": placement.external_refs,
-            "earliest_order": placement.earliest,
-            "latest_order": placement.latest,
-            "occupant": node_dict(placement.occupant) if placement.occupant is not None else None,
-            "insert_fragment": placement.insert_fragment,
-            "current": node_dict(placement.current) if placement.current is not None else None,
-            "current_position_legal": placement.current_legal,
-            "note": placement.note,
-        }
+        report_data["placement"] = _serialize_placement(placement)
     return report_data
+
+
+def _serialize_node(node: Node) -> dict[str, object]:
+    """Serialize a Node to a JSON-compatible dictionary."""
+    return {
+        "name": node.name,
+        "kind": node.kind,
+        "fragment": node.fragment,
+        "line": node.line,
+        "order": node.order,
+    }
+
+
+def _serialize_placement(placement: Placement) -> dict[str, object]:
+    """Serialize a Placement record to a JSON-compatible dictionary."""
+    return {
+        "name": placement.name,
+        "kind": placement.kind,
+        "exists": placement.exists,
+        "refs": [_serialize_node(ref) for ref in placement.refs],
+        "external_refs": placement.external_refs,
+        "earliest_order": placement.earliest,
+        "latest_order": placement.latest,
+        "occupant": _serialize_node(placement.occupant) if placement.occupant is not None else None,
+        "insert_fragment": placement.insert_fragment,
+        "current": _serialize_node(placement.current) if placement.current is not None else None,
+        "current_position_legal": placement.current_legal,
+        "note": placement.note,
+    }
+
+
+def _format_fragment_section(
+    fragment: str, nodes: list[Node], graph: Graph, dependents: dict[str, list[str]]
+) -> list[str]:
+    """Format human-readable lines for one fragment's definitions."""
+    first, last = nodes[0].order, nodes[-1].order
+    span = f"order {first}" if first == last else f"orders {first}-{last}"
+    lines = [f"{fragment} ({span}, {len(nodes)} definitions)"]
+    for node in nodes:
+        read_names = {edge.target for edge in graph.edges if edge.source == node.name and edge.target != node.name}
+        reads = sorted(
+            read_names,
+            key=lambda name: graph.by_name[name].order if name in graph.by_name else len(graph.nodes),
+        )
+        lines.append(
+            f"  {node.order:>4}  {node.kind:<8} {node.name:<32} :{node.line:<4}"
+            f" reads: {_cap(reads, 5) if reads else '-'}"
+        )
+        if dependents[node.name]:
+            lines.append(f"       {'':<8} {'':<32} feeds: {_cap(dependents[node.name], 6)}")
+    return lines
 
 
 def _parse_refs(raw: list[str] | None) -> list[str]:

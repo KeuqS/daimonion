@@ -2593,3 +2593,64 @@ fast tier の上位（`--durations=15`、同一リビジョン）:
   `tools/render_delta.py --base HEAD` を実走 → `228 leaves, 0 candidate(s) re-rendered
   against HEAD` と `PROVEN render-identical: ... 228 unaffected`
 
+
+
+---
+
+# 監査メモ（2026-09-18、TODO.md 索引から移動 — §B 残件の着地状況）
+
+> **2026-09-18 監査メモ**: §28 の 41 項目がすべて着地した時点での現状確認。
+> (i) §19 の小項目 2 件（z3 の `importorskip` 黙り skip / hypothesis ゼロ使用）は
+> **すでに後続作業で解決済み**（test_when_model.py:64 の必須化コメント、
+> tests/test_adopt_stateful.py の RuleBasedStateMachine 使用）。(ii) §23 の
+> `render_project` 戻り値拡張は原文が「優先度低（render_diff と利便性重複）」と
+> 判定済みだったが **2026-09-18 に着地**（mcp_server.render_project が
+> `{path, sha256}` を返し、`diff_against` で過去レンダとの manifest 差分
+> （render_diff 同型・スタンプ mask 付き）を出力）。手書きテスト→不変条件の
+> 棚卸し残り（§26.4-1b T12 の render sweep 6 本の L1 移し）も **2026-09-18 着地**
+> （test_example_layers.py の FLAG_TABLE + Worker._ask 共有パス。13 render を撤去、
+> ガードのガード付き）。§19 の composite action 化も **2026-09-18 着地**
+> （.github/actions/setup-runner/action.yml 新設、_tasks/_test/_docs/_dist を
+> 置き換え、template symlink で生成物にも同梱、workflow security pin 追加。
+> 生成物 CI の初回実走確認のみ残留）。§15 の zizmor version: latest 教訓は
+> security.yml.jinja への cli ピン追加で解消。残る §B は CI 緑確認・バッジ・
+> Periodic・未検証組合せ（push と run 観察が前提）。(iv') §4 の Gmail bot スライスは **2026-09-18 着地**（discord → slack → LINE に続き
+> 最後の platform。`bot_gmail_effective` + `_shared/bot-gmail.py.jinja`（OAuth +
+> ポーリング、/ping に pong 返信）、google-* 依存、.env/.gitignore/scripts/
+> Docker/tasks/docs 一式、生成テスト + fake transport。228 葉は不変、非 gmail 葉の
+> バイト同一を twin で実証）。「1つずつ潰す」計画はこれで完結。
+> (iv) 機能の将来拡張の残り（5 件）と公開・運用手順（14 件）は
+> リリース時・利用時の手順であり、コード変更では解消されない。
+> (iv'') 追加発見の修正（2026-09-18、Gmail スライス中に発見）:
+> `tests/render_cache.py::_record_inputs` は `{{ pkg_dir }}` 配下の template
+> source を消費集合に記録できていなかった（output_name が tag 剥離で先頭 `/` を
+> 残し厳一致が生成物名と交差しない）。`_shared/bot-*.py.jinja` 等 pkg 木所有の
+> 共有 body への編集が bot render のキャッシュを無効化しない実害。接尾辞規則へ
+> 修正（render_delta と同じ照合）+ CACHE_SCHEME v4 clean break + pin テスト
+> （tests/test_render_cache.py::test_a_pkg_dir_body_partial_is_recorded_and_invalidates）。よって §B は
+> 各自の着手条件が到来するまでアーカイブのまま残すのが正。
+> (v) §17 の「library の空依存を維持するか質問化するか」は **維持で決着**: 依存は
+> 既存の `log_library` 質問の出力であり、「ゼロ依存」は `logging` 選択として既に
+> 存在する（pin:
+> tests/test_example_library_cli.py::test_template_library_dependencies_come_from_the_log_choice）。
+> (vi) §21 の upstream fork PR は原文が「投稿は手動で行う（エージェント投稿禁止）」と
+> 明示する人間タスク。これらの着手条件（CI 実走・detach・GitHub 操作・投稿）が
+> 到来するまで §B はアーカイブのまま残すのが正。
+> (vii) 追加改善（2026-09-18、§28 完結後の追い込み）: **bot platform を葉空間へ**
+> （228 → 234 葉）。predicates 分類器が `bot_slack_effective` / `bot_line_effective` /
+> `bot_gmail_effective` を「0/228 葉で不発 — 決して分割しない」と報告していた穴。
+> 投影軸は `use_recommended_bot` を gate として運ぶが `bot_platform` は運ばず、
+> gate オフ葉（cli / web_api の 2 葉）は既定 discord のままになる — a515149a が
+> docker + MCP を `DETAIL_VARIANTS` で足したのと同型のギャップ。`BOT_PLATFORM_VARIANTS`
+> （slack / line / gmail）を新設し、`use_recommended_bot` オフの各葉から 1 葉ずつ派生
+> （discord は基底葉自身が担う）。invariants スキーマに `bot_platform` select キーを
+> 追加（選択肢と既定は Vocabulary が質問票から読む。NAMED_SELECT_KEYS は
+> project_type / oj_kind / include / gate_off / bot_platform の 5 つ。既定を受ける葉は
+> 次元を主張しない = include/gate_off/oj_kind と同じ規則）、ベース 2 行に
+> `bot_platform: [discord]` を付けて新規 6 行（cli / web_api × slack / line / gmail、
+> 兄弟平台ファイルの absent 付き）を追加。witnesses.jsonl 再生成（234）+ 台帳再記録
+> （witness 240 / test-fast 942）+ 228 → 234 の参照を docs / コメントに同期。
+> 検証: witness fast 240 passed（`.cache/renders` を空にして cold 16.9s）/ predicates が
+> 3 つの `bot_*_effective` の分割（2/234 ずつ）を報告 / lint / type-check 5 種 / meta 10
+> passed / docs sync 10 blocks / test-fast 25.6s（予算 30s 内。cold cache で 34.1s は
+> 測定条件として台帳ノートに明記）。

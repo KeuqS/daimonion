@@ -340,3 +340,22 @@ sections:
     rendered_from: []
     superseded_by: null
     why: "CISA BOD 20-01 + CVD guidance, RFC 9116 security.txt, IPA's early-warning partnership, and EU CRA art. 14 (vulnerability reporting duty live since 2026-09-11) converge on one rule: anything distributed or public-facing needs a declared reporting channel with handling deadlines. Drafted in the 2026-10-04 codex sync; the generated template already ships SECURITY.md, so promotion wiring is smaller than most rows."
+
+  - id: domain-prompt-injection
+    file: _shared/ethics/domain/prompt-injection.md.jinja
+    version: 2026-10-06.1
+    effective: 2025-01-31
+    review_by: 2027-03-31
+    sources:
+      - https://genai.owasp.org/llm-top-10
+      - https://arxiv.org/abs/2406.13352
+      - https://www.nist.gov/news-events/news/2025/01/technical-blog-strengthening-ai-agent-hijacking-evaluations
+    scope: {jurisdiction: [], sector: [], category: [ai-security]}
+    scale: global
+    audience: [mcp]
+    enforcement: L0
+    status: draft
+    rendered_from: []
+    gate: "mcp_effective"
+    superseded_by: null
+    why: "OWASP LLM Top 10 (2025) puts prompt injection first as LLM01, and the agent era's main front is indirect injection via external data (NIST calls it agent hijacking); AgentDojo shows the attacks succeed in realistic task settings. Drafted in the 2026-10-06 codex sync; the intended gate is the mcp audience's own flag, so promotion is a status flip once the bundle forms."

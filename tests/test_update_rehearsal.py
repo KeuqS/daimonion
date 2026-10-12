@@ -99,3 +99,43 @@ def test_the_full_rehearsal_passes_on_every_leaf():
         f"{len(payload['skipped'])} skipped as unrenderable at the base); the ledger records "
         f"{ledger['coverage']['total']}, and the floor this guard landed with is 225"
     )
+
+
+def _job() -> ur._Job:  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]  WHYNOT: the job is plain data; the retry contract under test is the pool entry's, not the dataclass's.
+    """The smallest rehearsal unit the pool can carry."""
+    return ur._Job("lib", {}, "7.0.0", "base", "target", False, False)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_rehearse_job_retries_a_transient_workspace_crash(monkeypatch: pytest.MonkeyPatch):
+    """An OSError that clears on a fresh workspace does not reach the verdict."""
+    attempts: list[int] = []
+
+    def flaky(*_args: object, **_kwargs: object) -> ur.LeafVerdict:
+        attempts.append(len(attempts))
+        if len(attempts) < 3:
+            raise OSError(39, "Directory not empty")
+        return ur.LeafVerdict("lib", ok=True, failed=[], convergence=[])
+
+    monkeypatch.setattr(ur, "rehearse_leaf", flaky)
+
+    verdict = ur._rehearse_job(_job())  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]  WHYNOT: retry behavior is the pool entry's contract.
+    assert verdict.ok and not verdict.runner_error and len(attempts) == 3
+
+
+def test_the_rehearse_job_reports_a_crash_as_a_runner_error(monkeypatch: pytest.MonkeyPatch):
+    """A crash that outlives every attempt is a verdict, never a pool crash.
+
+    2026-10-11's scheduled run lost the whole report to an unhandled
+    Errno 39 in TemporaryDirectory cleanup: pool.map raised, no JSON was
+    written, and CI could only say "failed". The verdict must reach the
+    report as runner_error -- red, but named.
+    """
+
+    def always_crash(*_args: object, **_kwargs: object) -> ur.LeafVerdict:
+        raise OSError(39, "Directory not empty")
+
+    monkeypatch.setattr(ur, "rehearse_leaf", always_crash)
+
+    verdict = ur._rehearse_job(_job())  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]  WHYNOT: retry behavior is the pool entry's contract.
+    assert not verdict.ok and verdict.runner_error
+    assert "runner error" in verdict.failed[0]

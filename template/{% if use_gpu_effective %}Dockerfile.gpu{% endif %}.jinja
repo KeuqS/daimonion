@@ -12,7 +12,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     git \
     curl \
     && apt-get dist-clean
-{% if package_manager == "uv" %}
+{% if is_uv %}
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 {% else %}
@@ -26,10 +26,10 @@ WORKDIR /app
 
 # Copy the lockfile and pyproject in first for better layer caching
 COPY pyproject.toml ./
-{% if package_manager == "uv" %}COPY uv.lock ./{% else %}COPY pixi.lock ./{% endif -%}
+{% if is_uv %}COPY uv.lock ./{% else %}COPY pixi.lock ./{% endif -%}
 
 # Install dependencies
-{% if package_manager == "uv" %}
+{% if is_uv %}
 RUN uv sync --locked --no-install-project
 {% else %}
 RUN pixi install --locked

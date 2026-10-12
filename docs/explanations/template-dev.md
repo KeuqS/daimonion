@@ -415,8 +415,8 @@ up:
 | `standalone` | `check_upstream`, `check_upstream_fork`, `check_questionnaire_diff`, `generate_license_template` | maintenance/CI scripts that import nothing from `tools/` (a pristine checkout or a released tarball is their world) |
 | `foundations` | `answers`, `questionnaire`, `when_model`, `render_inputs`, `support_ledger` | the questionnaire model and shared primitives: data and meaning, no behavior on real trees |
 | `machinery` | `file_merge`, `pyproject_merge`, `invariants`, `z3_witnesses` | pure transformations and verifiers over template/adoption artifacts |
-| `drivers` | `detect`, `batch`, `adopt`, `git`, `predicates`, `question_graph`, `render_delta`, `answers_for`, `update_rehearsal` | act on real trees with copier/subprocess; consume the machinery |
-| `frontends` | `cli`, `gen_docs`, `mcp_server` | the entry points a human or an agent calls; consume the drivers |
+| `drivers` | `detect`, `batch`, `adopt`, `git`, `predicates`, `question_graph`, `render_delta`, `answers_for`, `update_rehearsal`, `suggest` | act on real trees with copier/subprocess; consume the machinery |
+| `frontends` | `cli`, `explain`, `gen_docs`, `mcp_server` | the entry points a human or an agent calls; consume the drivers |
 
 Rules:
 

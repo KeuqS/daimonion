@@ -78,6 +78,65 @@ def support_section(support: dict[str, Any], key: str) -> list[Any]:
     return rows
 
 
+TIERED_SECTIONS = ("supported", "best_effort")
+"""The sections that promise a tier: a row names a combination, textually.
+
+Substring checks, because support.yml writes its combinations as prose
+(`project_type=cli/gate=off:use_recommended_agent`,
+`task_runner = make | poe | invoke | duty`): an answer matches a row when
+its name and value spellings both appear in the combination text. The
+renderers (tools/gen_docs.py) already read them the same way.
+"""
+
+
+def rows_naming(question: str, value: str | None = None) -> list[str]:
+    """The tiered rows naming `question` (and `value`), as human lines.
+
+    `value=None` matches rows naming the question at all (the "which
+    combinations involve this question" reading). Each line carries the
+    section, the tier and the measured `why`. An unreadable support.yml
+    reads as no rows -- the callers' verdicts stay advisory, never loud.
+    """
+    try:
+        support = load_support()
+    except (OSError, SupportLedgerError):
+        return []
+    notes: list[str] = []
+    for section in TIERED_SECTIONS:
+        try:
+            rows = support_section(support, section)
+        except SupportLedgerError:
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            combination = str(row.get("combination", ""))
+            if question not in combination:
+                continue
+            if value is not None and str(value) not in combination:
+                continue
+            why = str(row.get("why", "")).strip()
+            tier = str(row.get("tier", "")).strip()
+            line = f"Support ({section}, tier {tier}): `{combination}`"
+            if why:
+                line += f" -- {why}"
+            notes.append(line)
+    return notes
+
+
+def base_is_promised(support: dict[str, Any], project_type: str) -> bool:
+    """Whether any tiered row carries the `project_type` base to a tier."""
+    for section in TIERED_SECTIONS:
+        try:
+            rows = support_section(support, section)
+        except SupportLedgerError:
+            continue
+        for row in rows:
+            if isinstance(row, dict) and project_type in str(row.get("combination", "")):
+                return True
+    return False
+
+
 def cell(text: str) -> str:
     """A markdown table cell: one line, no unescaped pipes."""
     return " ".join(text.split()).replace("|", "\\|")
@@ -151,21 +210,10 @@ def render_support_table(support: dict[str, Any], *, full_link: str) -> str:
     return "\n".join(blocks)
 
 
-def render_update_rehearsal(report: Path = REHEARSAL_JSON) -> str:
-    """The `## Update rehearsal` section at the end of `docs/reference/support.md`.
-
-    Renders the JSON `tools/update_rehearsal.py --json` writes, which
-    update-rehearsal.yml commits next to the regenerated page: the section is
-    the public record that `copier update` still lands cleanly in a user's
-    project (TODO.md §40). A repository with no committed report yet renders
-    one line saying so, so the section exists before the first scheduled run
-    after this lands; a report that exists but is not the tool's payload
-    raises instead -- silently rendering "nothing recorded" over a real file
-    would hide the drift rather than surface it.
-    """
-    head = ["## Update rehearsal", ""]
+def _load_rehearsal_payload(report: Path) -> dict[str, Any] | None:
+    """Load and validate the JSON rehearsal report; returns None when absent."""
     if not report.is_file():
-        return "\n".join([*head, "No rehearsal has been recorded yet."])
+        return None
     try:
         payload = json.loads(report.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -178,22 +226,33 @@ def render_update_rehearsal(report: Path = REHEARSAL_JSON) -> str:
     if missing:
         msg = f"{report}: rehearsal report lacks {', '.join(missing)}"
         raise SupportLedgerError(msg)
+    return payload
+
+
+def _format_rehearsal_table(payload: dict[str, Any]) -> list[str]:
+    """Format the markdown table displaying the rehearsal verdict."""
     failures = len(payload["failures"])
     skipped = len(payload["skipped"])
     base = cell(f"`{payload['base']}` ({str(payload['base_rev'])[:10]})")
     target = cell(f"`{payload['target']}` ({str(payload['target_rev'])[:10]})")
     failed = cell(str(failures)) if failures else "0 — every leaf updated cleanly"
     row = f"| {base} | {target} | {cell(str(payload['rehearsed']))} | {failed} | {cell(str(skipped))} |"
-    return "\n".join(
-        [
-            *head,
-            "| Base | Target | Rehearsed | Failures | Skipped |",
-            "|---|---|---|---|---|",
-            row,
-            "",
-            "weekly via update-rehearsal.yml; latest committed run",
-        ]
-    )
+    return [
+        "| Base | Target | Rehearsed | Failures | Skipped |",
+        "|---|---|---|---|---|",
+        row,
+        "",
+        "weekly via update-rehearsal.yml; latest committed run",
+    ]
+
+
+def render_update_rehearsal(report: Path = REHEARSAL_JSON) -> str:
+    """The `## Update rehearsal` section at the end of `docs/reference/support.md`."""
+    head = ["## Update rehearsal", ""]
+    payload = _load_rehearsal_payload(report)
+    if payload is None:
+        return "\n".join([*head, "No rehearsal has been recorded yet."])
+    return "\n".join([*head, *_format_rehearsal_table(payload)])
 
 
 def render_support_doc(support: dict[str, Any], *, rehearsal: Path = REHEARSAL_JSON) -> str:

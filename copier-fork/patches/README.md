@@ -15,6 +15,15 @@ ready-to-file patches live in `notes/upstream-drafts/patches/` (see
 | `cli-trust-discoverability.patch` (this directory, F6 docs+message half) | `copier/errors.py`, `docs/generating.md` | Implemented 2026-10-05 on `kasi-x/copier` branch `f6-trust-discoverability` (pushed, PR unfiled per AI_POLICY). The `settings trust add` CLI sketch from FEATURES F6 remains unfounded — deliberately split: this patch is the docs+refusal-message half, the CLI subcommand is a separate upstream conversation. |
 | `cli-pretend-dry-run.patch` (this directory, F7 reduced scope) | `copier/_main.py`, `_cli.py`, `docs/configuring.md`, `tests/test_copy.py` | Implemented 2026-10-05 on `kasi-x/copier` branch `f7-pretend-summary` (pushed, PR unfiled per AI_POLICY). `--pretend` already covered F7's preview ask; this adds the missing summary line and documents it as the dry-run path. |
 
+## Compatibility Verification (2026-10-11)
+
+Verified against installed `copier 9.18.1`:
+- `cli-missing-answers-batch.patch`: applies cleanly (`copier/_main.py`)
+- `cli-pretend-dry-run.patch`: applies cleanly (`copier/_cli.py`, `copier/_main.py`)
+- `cli-trust-discoverability.patch`: applies cleanly (`copier/errors.py`)
+- `vcs-stale-tag-warning.patch`: applies cleanly (`copier/_template.py`, `copier/_vcs.py`, `copier/errors.py`)
+All 4 patches apply with zero hunks failed, ready for upstream PR filing.
+
 ## Naming
 
 `patches/<area>-<slug>.patch`, e.g. `cli-missing-answers-batch.patch`.

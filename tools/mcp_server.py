@@ -94,7 +94,9 @@ from tools import batch  # noqa: E402
 from tools import cli  # noqa: E402
 from tools import detect  # noqa: E402
 from tools import ethics  # noqa: E402
+from tools import explain  # noqa: E402
 from tools import questionnaire  # noqa: E402
+from tools import suggest  # noqa: E402
 from tools import support_ledger  # noqa: E402
 from tools.render_inputs import RENDER_INPUT_DIRS  # noqa: E402
 from tools.render_inputs import RENDER_INPUT_FILES  # noqa: E402
@@ -119,9 +121,8 @@ def list_questions(*, asked_only: bool = True) -> dict[str, Any]:
     resolved list, because their choices narrow themselves from earlier
     answers.
     """
-    questions, _settings = questionnaire.load_questions()
-    selected = [question.as_dict() for question in questions if not (asked_only and question.internal)]
-    return {"count": len(selected), "questions": selected}
+    schema = suggest.questionnaire_schema(asked_only=asked_only)
+    return {"count": schema["count"], "questions": schema["questions"]}
 
 
 @server.tool()
@@ -138,6 +139,80 @@ def list_presets() -> dict[str, Any]:
     """
     presets = [{"name": name, "answers": cli.preset_answers(name)} for name in cli.available_presets()]
     return {"count": len(presets), "presets": presets}
+
+
+def _explain_text(
+    question: str | None,
+    value: str | None,
+    preset: str | None,
+    deviate_question: str | None,
+    deviate_value: str | None,
+) -> str:
+    """The explanation text for one `explain_choice` call (the tool itself only wraps errors)."""
+    if preset is not None:
+        return explain.explain_preset(preset)
+    if deviate_question is not None and deviate_value is not None:
+        return explain.explain_deviation(deviate_question, deviate_value)
+    if question is not None:
+        return explain.explain_answer(question, value)
+    msg = "pass preset=, question=[value=], or deviate_question= + deviate_value="
+    raise ToolError(msg)
+
+
+@server.tool()
+def explain_choice(
+    question: str | None = None,
+    value: str | None = None,
+    preset: str | None = None,
+    deviate_question: str | None = None,
+    deviate_value: str | None = None,
+) -> dict[str, Any]:
+    """Explain a preset or an answer choice from the questionnaire's own words.
+
+    Pass `preset` to explain one preset (why it pins what it pins),
+    `question` (plus optional `value`) to explain one question's recommended
+    setting, or `deviate_question` + `deviate_value` for what changes when
+    that question takes that value instead (which questions appear or
+    disappear, which support rows name the combination). Returns {"explanation"}
+    with the human-readable text. Filesystem only -- no render, no network.
+    """
+    try:
+        text = _explain_text(question, value, preset, deviate_question, deviate_value)
+    except explain.ExplainError as exc:
+        raise ToolError(str(exc)) from exc
+    return {"explanation": text}
+
+
+@server.tool()
+def suggest_config(requirements: str) -> dict[str, Any]:
+    """Propose preset candidates for requirement words (the constrained assistant's first step).
+
+    Pass what the project needs ("an internal API with Postgres", "a Discord
+    bot", "firmware for esp32"); returns {"requirements", "matches"} with each
+    match's preset name, score, human reasons and the answers it pins. The
+    ranking is a deterministic keyword match over the preset files -- no
+    model, no render. Next: draft the full answer set, check it with
+    `validate_answers`, then generate with `daimonion new --preset` or an
+    answers file. Filesystem only -- no render, no network.
+    """
+    matches = suggest.suggest_presets([requirements])
+    return {"requirements": requirements, "matches": [match.as_dict() for match in matches]}
+
+
+@server.tool()
+def validate_answers(answers: dict[str, Any]) -> dict[str, Any]:
+    """Check a proposed answer set against the questionnaire's own machinery.
+
+    Pass the candidate answers (e.g. {"project_type": "web_api"}); returns
+    {"ok", "errors"} where errors are {question, reason} pairs in ask order:
+    unknown questions, answers to derived internals, values outside the
+    choices, validator failures, answers to questions copier would never ask,
+    and layer includes on a non-combinable base are all rejected. An approved
+    set (`ok: true`) is what `render_project` or `daimonion new --preset`
+    may generate from. Reads the questionnaire and runs copier's own
+    questionnaire pass -- no render, no network.
+    """
+    return suggest.validate_answers(dict(answers)).as_dict()
 
 
 @server.tool()
@@ -181,13 +256,13 @@ def template_status() -> dict[str, Any]:
     behind = batch.git(
         TOP, *(["rev-list", "--count", f"{describe}..HEAD"] if describe else ["--version"])
     ).stdout.strip()
-    questions, settings = questionnaire.load_questions()
+    total, asked_total, setting_names = questionnaire.counts()
     return {
         "repo": str(TOP),
         "template_dir": str(detect.TEMPLATE_DIR),
-        "questions": len(questions),
-        "asked_questions": sum(1 for question in questions if not question.internal),
-        "settings": sorted(settings),
+        "questions": total,
+        "asked_questions": asked_total,
+        "settings": setting_names,
         "latest_tag": describe or None,
         "head": head or None,
         "commits_behind_latest_tag": int(behind) if behind.isdigit() else None,
@@ -258,13 +333,29 @@ def adopt_project(
     `inspect_project` derived. Files under `skip` are never written over, and
     everything the project does not have yet is still added.
     """
-    if not Path(path).is_dir():
-        msg = f"not a directory: {path}"
+    result = _run_adoption(Path(path).resolve(), ref, answers, dry_run=dry_run, merge=merge)
+    if not result.ok:
+        msg = f"adoption failed and was rolled back: {result.error}"
+        raise ToolError(msg)
+    return result.as_dict()
+
+
+def _run_adoption(
+    target_dir: Path,
+    ref: str | None,
+    answers: dict[str, Any] | None,
+    *,
+    dry_run: bool,
+    merge: bool,
+) -> adopt.Adoption:
+    """Execute adopt.adopt wrapped in stream isolation and tool error conversion."""
+    if not target_dir.is_dir():
+        msg = f"not a directory: {target_dir}"
         raise ToolError(msg)
     try:
         with batch.report_stream_only():
-            result = adopt.adopt(
-                Path(path).resolve(),
+            return adopt.adopt(
+                target_dir,
                 ref=ref,
                 answers=answers or {},
                 dry_run=dry_run,
@@ -274,10 +365,6 @@ def adopt_project(
         raise ToolError(str(exc)) from exc
     except (adopt.AdoptError, OSError) as exc:
         raise ToolError(str(exc)) from exc
-    if not result.ok:
-        msg = f"adoption failed and was rolled back: {result.error}"
-        raise ToolError(msg)
-    return result.as_dict()
 
 
 @server.tool()
@@ -313,32 +400,54 @@ def render_project(
     rendered. One render plus a byte comparison; no install, no network unless
     `prepare`.
     """
-    previous = Path(diff_against).resolve() if diff_against else None
-    if previous is not None and not previous.is_dir():
-        msg = f"diff_against is not a directory: {diff_against}"
-        raise ToolError(msg)
+    previous = _validate_diff_target(diff_against)
     work = Path(dest).resolve() if dest else Path(tempfile.mkdtemp(prefix="mcp-render-"))
     work.mkdir(parents=True, exist_ok=True)
-    _render_into(answers, work)
-    with batch.report_stream_only():
-        checks = [batch.prepare_environment(work, "render")] if prepare else []
-    failed = [check for check in checks if not check.ok]
-    if failed:
-        msg = f"render succeeded but prepare failed: {failed[0].detail}"
-        raise ToolError(msg)
+    _render_and_prepare(answers, work, prepare=prepare)
     tree = _tree(work)
-    files = [
-        {"path": name, "sha256": hashlib.sha256(body.read_bytes()).hexdigest()} for name, body in sorted(tree.items())
-    ]
+    files, top_level = _build_rendered_files_inventory(tree)
     payload: dict[str, Any] = {
         "dest": str(work),
         "file_count": len(files),
         "files": files,
-        "top_level": sorted({entry["path"].split("/")[0] for entry in files}),
+        "top_level": top_level,
     }
     if previous is not None:
         payload["diff"] = _manifest_diff(previous, tree)
     return payload
+
+
+def _validate_diff_target(diff_against: str | None) -> Path | None:
+    """Resolve and validate the optional diff-against directory."""
+    if not diff_against:
+        return None
+    previous = Path(diff_against).resolve()
+    if not previous.is_dir():
+        msg = f"diff_against is not a directory: {diff_against}"
+        raise ToolError(msg)
+    return previous
+
+
+def _render_and_prepare(answers: dict[str, Any], work: Path, *, prepare: bool) -> None:
+    """Render template into work directory and optionally execute prepare_environment."""
+    _render_into(answers, work)
+    if not prepare:
+        return
+    with batch.report_stream_only():
+        checks = [batch.prepare_environment(work, "render")]
+    failed = [check for check in checks if not check.ok]
+    if failed:
+        msg = f"render succeeded but prepare failed: {failed[0].detail}"
+        raise ToolError(msg)
+
+
+def _build_rendered_files_inventory(tree: dict[str, Path]) -> tuple[list[dict[str, str]], list[str]]:
+    """Build list of {path, sha256} records and sorted top-level directory names."""
+    files = [
+        {"path": name, "sha256": hashlib.sha256(body.read_bytes()).hexdigest()} for name, body in sorted(tree.items())
+    ]
+    top_level = sorted({entry["path"].split("/")[0] for entry in files})
+    return files, top_level
 
 
 def _manifest_diff(target: Path, tree: dict[str, Path]) -> dict[str, Any]:
@@ -479,15 +588,18 @@ def _compared(path: Path, name: str) -> bytes:
     `.copier-answers.yml` records `_commit` and `_src_path`, and for a *dirty*
     template that commit is a synthetic one copier creates per render: its sha
     changes between two renders of identical answers, so comparing it as-is
-    would report every comparison of a working tree as different. The stamps
-    are masked by batch.mask_render_stamps (RENDER_STAMPS is the one stamp
-    list, shared with the render twin and the rehearsal) -- the line shape
-    stays, so a diff of genuinely different answers is still readable -- and
-    the commit value is reported separately (`answers_commit`) instead. Every
-    other byte is compared as it is.
+    would report every comparison of a working tree as different. The composition
+    manifest carries the same stamp under `template_ref`, so it normalizes the
+    same way. The stamps are masked by batch.mask_render_stamps (RENDER_STAMPS plus
+    MANIFEST_STAMPS is the one stamp list, shared with the render twin and the
+    rehearsal) -- the line shape stays, so a diff of genuinely different answers
+    is still readable -- and the commit value is reported separately
+    (`answers_commit`) instead. Every other byte is compared as it is.
     """
     body = path.read_bytes()
-    return batch.mask_render_stamps(body) if name == batch.ANSWERS_FILE else body
+    if name in (batch.ANSWERS_FILE, batch.MANIFEST_FILE):
+        return batch.mask_render_stamps(body)
+    return body
 
 
 def _checkout_stamp(path: Path) -> str | None:
@@ -541,6 +653,26 @@ def render_diff(answers_a: dict[str, Any], answers_b: dict[str, Any], *, keep: b
     tree_a, tree_b = _tree(first), _tree(second)
     only_in_a = sorted(set(tree_a) - set(tree_b))
     only_in_b = sorted(set(tree_b) - set(tree_a))
+    identical, changed = _compare_shared_files(tree_a, tree_b)
+    return {
+        "identical": not (only_in_a or only_in_b or changed),
+        "dest_a": str(first) if keep else None,
+        "dest_b": str(second) if keep else None,
+        "file_count": {"a": len(tree_a), "b": len(tree_b)},
+        "identical_count": identical,
+        "changed_count": len(changed),
+        "changed": changed,
+        "only_in_a": only_in_a,
+        "only_in_b": only_in_b,
+        "answers_commit": {
+            "a": _checkout_stamp(tree_a[batch.ANSWERS_FILE]) if batch.ANSWERS_FILE in tree_a else None,
+            "b": _checkout_stamp(tree_b[batch.ANSWERS_FILE]) if batch.ANSWERS_FILE in tree_b else None,
+        },
+    }
+
+
+def _compare_shared_files(tree_a: dict[str, Path], tree_b: dict[str, Path]) -> tuple[int, list[dict[str, Any]]]:
+    """Compare files present in both trees, returning (identical_count, changed_records)."""
     changed: list[dict[str, Any]] = []
     identical = 0
     for name in sorted(set(tree_a) & set(tree_b)):
@@ -561,21 +693,7 @@ def render_diff(answers_a: dict[str, Any], answers_b: dict[str, Any], *, keep: b
                 "diff_truncated": truncated,
             }
         )
-    return {
-        "identical": not (only_in_a or only_in_b or changed),
-        "dest_a": str(first) if keep else None,
-        "dest_b": str(second) if keep else None,
-        "file_count": {"a": len(tree_a), "b": len(tree_b)},
-        "identical_count": identical,
-        "changed_count": len(changed),
-        "changed": changed,
-        "only_in_a": only_in_a,
-        "only_in_b": only_in_b,
-        "answers_commit": {
-            "a": _checkout_stamp(tree_a[batch.ANSWERS_FILE]) if batch.ANSWERS_FILE in tree_a else None,
-            "b": _checkout_stamp(tree_b[batch.ANSWERS_FILE]) if batch.ANSWERS_FILE in tree_b else None,
-        },
-    }
+    return identical, changed
 
 
 def _lint_checks(dest: Path) -> list[batch.Check]:
@@ -709,18 +827,8 @@ def _output_tail(stdout: str, stderr: str) -> str:
     return (stdout + stderr).strip()[-OUTPUT_LIMIT:]
 
 
-def _run_pytest_tier(
-    tier: str, expression: str | None, tests: Path | None, *, only: str | None, timeout: int
-) -> dict[str, Any]:
-    """Run one pytest selection in a subprocess and return the structured verdict.
-
-    The one body behind run_witness and run_tests (TODO.md §28.3 3e -- the two
-    tools were ~60 duplicated lines each): `expression` is the ``-m`` marker
-    selection (None omits it), `tests` an optional file to run, `only` the
-    ``-k`` narrowing. The verdict machinery (junit -> LineResult) is
-    batch.junit_verdicts.
-    """
-    report = Path(tempfile.mkdtemp(prefix="mcp-pytest-")) / "report.xml"
+def _build_pytest_command(report: Path, expression: str | None, only: str | None, tests: Path | None) -> list[str]:
+    """Assemble the pytest argv for running a tier in a subprocess."""
     command = [sys.executable, "-m", "pytest", "-q", "--junit-xml", str(report)]
     if expression:
         command += ["-m", expression]
@@ -728,15 +836,17 @@ def _run_pytest_tier(
         command += ["-k", only]
     if tests is not None:
         command.append(str(tests))
-    started = time.monotonic()
-    try:
-        proc = subprocess.run(  # noqa: S603  WHYNOT: fixed argv; `only` is passed to pytest, not a shell.
-            command, cwd=TOP, capture_output=True, text=True, check=False, timeout=timeout
-        )
-    except subprocess.TimeoutExpired:
-        msg = f"the {tier} tier did not finish within {timeout}s"
-        raise ToolError(msg) from None
-    seconds = round(time.monotonic() - started, 3)
+    return command
+
+
+def _format_pytest_tier_result(
+    proc: subprocess.CompletedProcess[str],
+    report: Path,
+    meta: tuple[str, str | None, float],
+    command: list[str],
+) -> dict[str, Any]:
+    """Parse the JUnit XML report and return the structured verdict dictionary."""
+    tier, only, seconds = meta
     if not report.is_file():
         return {
             "ok": False,
@@ -759,6 +869,31 @@ def _run_pytest_tier(
         "output": "" if proc.returncode == 0 else _output_tail(proc.stdout, proc.stderr),
         "lines": [line.as_dict() for line in lines],
     }
+
+
+def _run_pytest_tier(
+    tier: str, expression: str | None, tests: Path | None, *, only: str | None, timeout: int
+) -> dict[str, Any]:
+    """Run one pytest selection in a subprocess and return the structured verdict.
+
+    The one body behind run_witness and run_tests (TODO.md §28.3 3e -- the two
+    tools were ~60 duplicated lines each): `expression` is the ``-m`` marker
+    selection (None omits it), `tests` an optional file to run, `only` the
+    ``-k`` narrowing. The verdict machinery (junit -> LineResult) is
+    batch.junit_verdicts.
+    """
+    report = Path(tempfile.mkdtemp(prefix="mcp-pytest-")) / "report.xml"
+    command = _build_pytest_command(report, expression, only, tests)
+    started = time.monotonic()
+    try:
+        proc = subprocess.run(  # noqa: S603  WHYNOT: fixed argv; `only` is passed to pytest, not a shell.
+            command, cwd=TOP, capture_output=True, text=True, check=False, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        msg = f"the {tier} tier did not finish within {timeout}s"
+        raise ToolError(msg) from None
+    seconds = round(time.monotonic() - started, 3)
+    return _format_pytest_tier_result(proc, report, (tier, only, seconds), command)
 
 
 @server.tool()
@@ -878,8 +1013,9 @@ def template_fingerprint() -> dict[str, Any]:
 @server.resource("template://questionnaire")
 def questionnaire_resource() -> str:
     """The full questionnaire as JSON, including the internal variables."""
-    questions, settings = questionnaire.load_questions()
-    return json.dumps({"questions": [q.as_dict() for q in questions], "settings": settings}, indent=2, default=str)
+    _questions, settings = questionnaire.load_questions()
+    entries = questionnaire.schema_entries()
+    return json.dumps({"questions": entries, "settings": settings}, indent=2, default=str)
 
 
 @server.resource("template://witnesses")

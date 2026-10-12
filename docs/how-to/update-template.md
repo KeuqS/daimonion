@@ -44,3 +44,23 @@ The following steps are recommended to update your project, especially for infre
     - `task check`
 - fix any issues found by the above
 - commit the changes
+
+## Check what changed: the composition contract
+
+Every generated project carries `.daimonion-manifest.yml`: the composition
+contract — the template ref it was generated from, the answers file it
+describes, and the ethics sections the render distributed. It never carries
+answer values (those live in `.copier-answers.yml`), so it is safe to keep
+and compare.
+
+Before updating, record what you have; after updating, ask what moved:
+
+```
+daimonion verify /path/to/project
+daimonion verify /path/to/project --against /path/to/older-copy
+```
+
+The report checks the manifest's schema version, holds the manifest's ref
+against the answers file's `_commit`, and — with `--against` — lists which
+ref, answers, and distributed sections changed. A tampered manifest fails
+verification instead of reporting a clean bill.

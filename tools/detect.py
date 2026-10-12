@@ -56,6 +56,7 @@ if str(TOP) not in sys.path:
 
 from tools import git  # noqa: E402
 from tools.questionnaire import TolerantLoader  # noqa: E402
+from tools.render_inputs import read_yaml_mapping  # noqa: E402
 from tools.when_model import load_questions  # noqa: E402
 
 TEMPLATE_DIR = TOP / "template"
@@ -218,6 +219,108 @@ def _remote_facts(target: Path, notes: list[str]) -> dict[str, str]:
     return derived
 
 
+def _vcs_facts(target: Path) -> list[str]:
+    """VCS indicators under target."""
+    if (target / ".git").exists():
+        remote = _git(target, "remote", "get-url", "origin") or "no origin"
+        return [f".git ({remote})"]
+    return []
+
+
+def _packaging_facts(target: Path, pyproject: dict[str, Any], project: dict[str, Any]) -> list[str]:
+    """Packaging declarations and lockfiles."""
+    facts = [
+        f"pyproject.toml (name={project['name']!r})" if project.get("name") else ("pyproject.toml" if pyproject else "")
+    ]
+    facts += [name for name in ("setup.py", "setup.cfg", "Pipfile") if (target / name).exists()]
+    facts += sorted(p.name for p in target.glob("requirements*.txt"))
+    facts += [name for name in ("poetry.lock", "uv.lock", "pixi.lock", "pixi.toml") if (target / name).exists()]
+    return [f for f in facts if f]
+
+
+def _python_facts(target: Path, project: dict[str, Any]) -> list[str]:
+    """Python version declarations."""
+    facts = [name for name in (".python-version", "tox.ini", "noxfile.py") if (target / name).exists()]
+    if project.get("requires-python"):
+        facts.append(f"requires-python={project['requires-python']!r}")
+    return facts
+
+
+def _layout_facts(target: Path) -> list[str]:
+    """Source tree layout."""
+    items = [("src/" if (target / "src").is_dir() else ""), _scaffold_fact(target) or ""]
+    return [item for item in items if item]
+
+
+def _task_runner_facts(target: Path, pyproject: dict[str, Any]) -> list[str]:
+    """Task runners and build tools."""
+    facts = [
+        name for name in ("justfile", "Taskfile.yml", "Makefile", "tasks.py", "duties.py") if (target / name).exists()
+    ]
+    if pyproject.get("tool", {}).get("poe"):
+        facts.append("poe (pyproject)")
+    return facts
+
+
+def _ci_facts(target: Path) -> list[str]:
+    """Continuous integration definitions."""
+    facts: list[str] = []
+    if (target / ".github" / "workflows").is_dir():
+        facts.append(".github/workflows/")
+    facts += [name for name in (".gitlab-ci.yml", ".pre-commit-config.yaml") if (target / name).exists()]
+    return facts
+
+
+def _quality_facts(target: Path, pyproject: dict[str, Any]) -> list[str]:
+    """Linters, formatters, typecheckers, and security scanners."""
+    tools = [
+        tool for tool in ("ruff", "mypy", "pyright", "pytest", "black", "isort") if tool in pyproject.get("tool", {})
+    ]
+    config_names = (
+        ".flake8",
+        "pytest.ini",
+        "mypy.ini",
+        "pyrightconfig.json",
+        ".editorconfig",
+        "typos.toml",
+        "gitleaks.toml",
+        "renovate.json",
+        "cliff.toml",
+    )
+    configs = [name for name in config_names if (target / name).exists()]
+    if (target / ".gitleaks.toml").exists():
+        configs.append(".gitleaks.toml")
+    return tools + configs
+
+
+def _docs_facts(target: Path) -> list[str]:
+    """Documentation frameworks."""
+    facts = ["docs/"] if (target / "docs").is_dir() else []
+    return facts + [
+        name for name in ("mkdocs.yml", "zensical.toml", "book.toml", "conf.py") if (target / name).exists()
+    ]
+
+
+def _container_facts(target: Path) -> list[str]:
+    """Container and devcontainer definitions."""
+    candidates = ("Dockerfile", "Dockerfile.gpu", "compose.yml", "compose.local.yml", ".dockerignore")
+    facts = [name for name in candidates if (target / name).exists()]
+    if (target / ".devcontainer").is_dir():
+        facts.append("devcontainer/")
+    return facts
+
+
+def _agent_facts(target: Path) -> list[str]:
+    """AI agent instructions and rule files."""
+    candidates = ("AGENTS.md", "CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md")
+    return [name for name in candidates if (target / name).exists()]
+
+
+def _authors_facts(project: dict[str, Any]) -> list[str]:
+    """Package authors from pyproject.toml."""
+    return [f"{a.get('name')} <{a.get('email')}>" for a in project.get("authors", []) if isinstance(a, dict)]
+
+
 def collect_facts(target: Path, notes: list[str]) -> list[Fact]:
     """Inventory the target: only paths that exist, in a stable order."""
     pyproject = _load_pyproject(target)
@@ -228,79 +331,22 @@ def collect_facts(target: Path, notes: list[str]) -> list[Fact]:
         if items:
             facts.append(Fact(key=key, detail=", ".join(items)))
 
-    if (target / ".git").exists():
-        remote = _git(target, "remote", "get-url", "origin") or "no origin"
-        add("vcs", [f".git ({remote})"])
-
-    add(
-        "packaging",
-        [
-            f"pyproject.toml (name={project['name']!r})"
-            if project.get("name")
-            else ("pyproject.toml" if pyproject else "")
-        ]
-        + [name for name in ("setup.py", "setup.cfg", "Pipfile") if (target / name).exists()]
-        + sorted(p.name for p in target.glob("requirements*.txt"))
-        + [name for name in ("poetry.lock", "uv.lock", "pixi.lock", "pixi.toml") if (target / name).exists()],
-    )
-    add(
-        "python",
-        [name for name in (".python-version", "tox.ini", "noxfile.py") if (target / name).exists()]
-        + ([f"requires-python={project['requires-python']!r}"] if project.get("requires-python") else []),
-    )
-    add(
-        "layout",
-        [item for item in [("src/" if (target / "src").is_dir() else ""), _scaffold_fact(target) or ""] if item],
-    )
+    add("vcs", _vcs_facts(target))
+    add("packaging", _packaging_facts(target, pyproject, project))
+    add("python", _python_facts(target, project))
+    add("layout", _layout_facts(target))
     add("tests", ["tests/"] if (target / "tests").is_dir() else [])
-    add(
-        "task runner",
-        [name for name in ("justfile", "Taskfile.yml", "Makefile", "tasks.py", "duties.py") if (target / name).exists()]
-        + (["poe (pyproject)"] if pyproject.get("tool", {}).get("poe") else []),
-    )
-    add(
-        "ci",
-        ([".github/workflows/"] if (target / ".github" / "workflows").is_dir() else [])
-        + [name for name in (".gitlab-ci.yml", ".pre-commit-config.yaml") if (target / name).exists()],
-    )
-    add(
-        "quality",
-        [tool for tool in ("ruff", "mypy", "pyright", "pytest", "black", "isort") if tool in pyproject.get("tool", {})]
-        + [
-            name
-            for name in (".flake8", "pytest.ini", "mypy.ini", "pyrightconfig.json", ".editorconfig", "typos.toml")
-            if (target / name).exists()
-        ]
-        + [name for name in ("gitleaks.toml", "renovate.json", "cliff.toml") if (target / name).exists()]
-        + ([".gitleaks.toml"] if (target / ".gitleaks.toml").exists() else []),
-    )
-    add(
-        "docs",
-        (["docs/"] if (target / "docs").is_dir() else [])
-        + [name for name in ("mkdocs.yml", "zensical.toml", "book.toml", "conf.py") if (target / name).exists()],
-    )
-    add(
-        "containers",
-        [
-            name
-            for name in ("Dockerfile", "Dockerfile.gpu", "compose.yml", "compose.local.yml", ".dockerignore")
-            if (target / name).exists()
-        ]
-        + (["devcontainer/"] if (target / ".devcontainer").is_dir() else []),
-    )
-    add(
-        "agents",
-        [
-            name
-            for name in ("AGENTS.md", "CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md")
-            if (target / name).exists()
-        ],
-    )
+    add("task runner", _task_runner_facts(target, pyproject))
+    add("ci", _ci_facts(target))
+    add("quality", _quality_facts(target, pyproject))
+    add("docs", _docs_facts(target))
+    add("containers", _container_facts(target))
+    add("agents", _agent_facts(target))
     license_fact = _license_fact(pyproject, target)
     add("license", [license_fact] if license_fact else [])
-    add("authors", [f"{a.get('name')} <{a.get('email')}>" for a in project.get("authors", []) if isinstance(a, dict)])
-
+    add("authors", _authors_facts(project))
     add("copier", [_answers_summary(path) for path in sorted(target.glob(".copier-answers*.yml"))])
+
     if (target / "copier.yml").is_file() and (target / "template").is_dir():
         notes.append("target contains copier.yml + template/ -- this is a copier template, not a project to adopt")
     return facts
@@ -309,10 +355,8 @@ def collect_facts(target: Path, notes: list[str]) -> list[Fact]:
 def _answers_summary(path: Path) -> str:
     """`file (_src_path=..., _commit=...)` for the facts line."""
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (yaml.YAMLError, OSError):
-        data = {}
-    if not isinstance(data, dict):
+        data = read_yaml_mapping(path)
+    except (OSError, TypeError, ValueError, yaml.YAMLError):
         data = {}
     parts = [str(data.get("_src_path", "?"))]
     if data.get("_commit"):
@@ -424,10 +468,10 @@ def answers_owner(target: Path) -> tuple[str | None, str | None]:
     """(src_path, commit) recorded by the answers file that governs `target`."""
     for answers in sorted(target.glob(".copier-answers*.yml")):
         try:
-            data = yaml.safe_load(answers.read_text(encoding="utf-8")) or {}
-        except (yaml.YAMLError, OSError):
+            data = read_yaml_mapping(answers)
+        except (yaml.YAMLError, OSError, TypeError, ValueError):
             continue
-        if isinstance(data, dict) and isinstance(data.get("_src_path"), str):
+        if isinstance(data.get("_src_path"), str):
             commit = data.get("_commit")
             return data["_src_path"], commit if isinstance(commit, str) else None
     return None, None
@@ -437,10 +481,10 @@ def _managed_by_this_template(target: Path) -> bool:
     """True when .copier-answers*.yml points back at this repository."""
     for answers in sorted(target.glob(".copier-answers*.yml")):
         try:
-            data = yaml.safe_load(answers.read_text(encoding="utf-8")) or {}
-        except (yaml.YAMLError, OSError):
+            data = read_yaml_mapping(answers)
+        except (yaml.YAMLError, OSError, TypeError, ValueError):
             continue
-        if isinstance(data, dict) and isinstance(data.get("_src_path"), str) and _src_is_ours(data["_src_path"]):
+        if isinstance(data.get("_src_path"), str) and _src_is_ours(data["_src_path"]):
             return True
     return False
 
@@ -581,6 +625,56 @@ def skip_if_exists(template_dir: Path) -> set[str]:
     return {str(entry) for entry in entries if isinstance(entry, str)}
 
 
+def _handle_foreign_detection(target: Path, detection: Detection, notes: list[str], *, takeover: bool) -> bool:
+    """Handle target owned by another template; return True to proceed with adoption."""
+    src, commit = answers_owner(target)
+    detection.foreign_src = src
+    if not takeover:
+        notes.append(
+            f"managed by another copier template ({src}"
+            + (f" at {commit}" if commit else "")
+            + "); refusing to touch it -- pass --takeover to adopt anyway"
+        )
+        return False
+    detection.took_over = True
+    detection.mode = "adopt"
+    notes.append(f"taking over from {src}: the previous template's .copier-answers.yml is replaced")
+    return True
+
+
+def _populate_fresh_detection(target: Path, template_dir: Path, detection: Detection, notes: list[str]) -> Detection:
+    """Populate detection records for a fresh project creation."""
+    proposed = {"existing_project": False}
+    if target.is_dir():
+        proposed.update(derive_answers(target, notes))
+    asked = template_questions(template_dir)
+    detection.suggested_answers = {key: value for key, value in proposed.items() if key in asked}
+    detection.added = [
+        output.path for output in template_outputs(template_dir) if render_state(output, {}) == "overwrite"
+    ]
+    return detection
+
+
+def _classify_template_outputs(
+    target: Path, template_dir: Path, protections: dict[str, bool], detection: Detection
+) -> None:
+    """Classify each template output as kept, added, or colliding with an existing file."""
+    always_kept = skip_if_exists(template_dir)
+    for output in template_outputs(template_dir):
+        exists = (target / output.path).exists()
+        state = render_state(output, protections)
+        if state == "omit" or output.path in always_kept:
+            if exists:
+                detection.kept.append(output.path)
+            continue
+        (detection.collisions if exists else detection.added).append(output.path)
+
+    detection.collisions.sort()
+    detection.added.sort()
+    detection.kept.sort()
+    detection.skip = list(detection.collisions)
+
+
 def detect(target: Path, template_dir: Path | None = None, *, takeover: bool = False) -> Detection:
     """Inspect `target` and report the mode, the inventory and the collisions.
 
@@ -592,30 +686,11 @@ def detect(target: Path, template_dir: Path | None = None, *, takeover: bool = F
     notes: list[str] = []
     mode = detect_mode(target)
     detection = Detection(path=str(target), mode=mode, notes=notes)
-    if mode == "foreign":
-        src, commit = answers_owner(target)
-        detection.foreign_src = src
-        if not takeover:
-            notes.append(
-                f"managed by another copier template ({src}"
-                + (f" at {commit}" if commit else "")
-                + "); refusing to touch it -- pass --takeover to adopt anyway"
-            )
-            return detection
-        detection.took_over = True
-        detection.mode = mode = "adopt"
-        notes.append(f"taking over from {src}: the previous template's .copier-answers.yml is replaced")
-
-    if mode == "fresh":
-        proposed = {"existing_project": False}
-        if target.is_dir():
-            proposed.update(derive_answers(target, notes))
-        asked = template_questions(template_dir)
-        detection.suggested_answers = {key: value for key, value in proposed.items() if key in asked}
-        detection.added = [
-            output.path for output in template_outputs(template_dir) if render_state(output, {}) == "overwrite"
-        ]
+    if mode == "foreign" and not _handle_foreign_detection(target, detection, notes, takeover=takeover):
         return detection
+
+    if detection.mode == "fresh":
+        return _populate_fresh_detection(target, template_dir, detection, notes)
 
     detection.facts = collect_facts(target, notes)
     detection.protections = protection_facts(target)
@@ -627,20 +702,7 @@ def detect(target: Path, template_dir: Path | None = None, *, takeover: bool = F
     asked = template_questions(template_dir)
     detection.suggested_answers = {key: value for key, value in proposed.items() if key in asked}
 
-    always_kept = skip_if_exists(template_dir)
-    for output in template_outputs(template_dir):
-        exists = (target / output.path).exists()
-        state = render_state(output, detection.protections)
-        if state == "omit" or output.path in always_kept:
-            if exists:
-                detection.kept.append(output.path)
-            continue
-        (detection.collisions if exists else detection.added).append(output.path)
-
-    detection.collisions.sort()
-    detection.added.sort()
-    detection.kept.sort()
-    detection.skip = list(detection.collisions)
+    _classify_template_outputs(target, template_dir, detection.protections, detection)
     if not any(detection.protections.values()):
         notes.append("no protectable files found; adopt mode would render every file it produces")
     return detection
@@ -657,6 +719,32 @@ def _bullet_section(title: str, entries: list[str], limit: int) -> list[str]:
     return lines
 
 
+def _render_foreign_warning(foreign_src: str | None) -> list[str]:
+    """Format the warning header for a project owned by a foreign template."""
+    return [
+        "",
+        "STOP: this project is already managed by another copier template",
+        f"  _src_path: {foreign_src}",
+        "  `copier copy` here would write this template's files over that project's",
+        "  and replace its answers file. To adopt this template anyway (discarding",
+        "  the previous template's record), re-run with --takeover.",
+    ]
+
+
+def _render_adopt_guidance(skip: list[str]) -> list[str]:
+    """Format the next-steps CLI snippet for adoption."""
+    skips = " ".join(f"--skip {shlex.quote(path)}" for path in skip)
+    return [
+        "",
+        "next (keep your files, add the rest):",
+        "  python tools/detect.py <path> --answers answers.yml",
+        "  copier copy --trust --defaults --vcs-ref=<ref> --data-file answers.yml "
+        f"{skips} <TEMPLATE_URL> <path>".rstrip(),
+        "  copier stops at the first conflict without --skip (and replaces it with --overwrite);",
+        "  a --skip path that the template would not render for your answers is harmless.",
+    ]
+
+
 def render_report(detection: Detection, limit: int = 12) -> str:
     """Human-readable report: facts, what is kept, what would be written."""
     lines = [f"path: {detection.path}", f"mode: {detection.mode}"]
@@ -664,14 +752,7 @@ def render_report(detection: Detection, limit: int = 12) -> str:
         lines.extend(["", "facts"])
         lines.extend(f"  {fact.key:<12} {fact.detail}" for fact in detection.facts)
     if detection.mode == "foreign":
-        lines += [
-            "",
-            "STOP: this project is already managed by another copier template",
-            f"  _src_path: {detection.foreign_src}",
-            "  `copier copy` here would write this template's files over that project's",
-            "  and replace its answers file. To adopt this template anyway (discarding",
-            "  the previous template's record), re-run with --takeover.",
-        ]
+        lines.extend(_render_foreign_warning(detection.foreign_src))
         return "\n".join(lines)
     if detection.mode == "adopt":
         lines += _bullet_section("kept (your files; adopt mode does not write them)", detection.kept, limit)
@@ -688,16 +769,7 @@ def render_report(detection: Detection, limit: int = 12) -> str:
         lines += ["", "suggested answers"]
         lines.extend(f"  {key}: {json.dumps(value)}" for key, value in detection.suggested_answers.items())
     if detection.mode == "adopt":
-        skips = " ".join(f"--skip {shlex.quote(path)}" for path in detection.skip)
-        lines += [
-            "",
-            "next (keep your files, add the rest):",
-            "  python tools/detect.py <path> --answers answers.yml",
-            "  copier copy --trust --defaults --vcs-ref=<ref> --data-file answers.yml "
-            f"{skips} <TEMPLATE_URL> <path>".rstrip(),
-            "  copier stops at the first conflict without --skip (and replaces it with --overwrite);",
-            "  a --skip path that the template would not render for your answers is harmless.",
-        ]
+        lines.extend(_render_adopt_guidance(detection.skip))
     if detection.notes:
         lines += ["", "notes"]
         lines.extend(f"  {note}" for note in detection.notes)

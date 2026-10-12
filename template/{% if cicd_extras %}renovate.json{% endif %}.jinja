@@ -10,7 +10,7 @@
     "automerge": true
   },
   "lockFileMaintenance": {
-    "description": "Keep the {{ "uv.lock" if package_manager == "uv" else "pixi.lock" }} up to date, merging if tests pass",
+    "description": "Keep the {{ "uv.lock" if is_uv else "pixi.lock" }} up to date, merging if tests pass",
     "enabled": true,
     "automerge": true
   },

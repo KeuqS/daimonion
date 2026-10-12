@@ -116,3 +116,15 @@ The weekly `scheduled-check.yml` job `law-map-review-by` runs
 a grounding's `review_by` has expired — a different corpus than the vendored
 drift check (prose SHA vs. obligation freshness), so a red run names exactly
 one thing to fix.
+
+The weekly `e2e-ecosystem.yml` workflow closes the remaining gap: it runs
+the whole chain in one job — `law-map export` plus
+`law-map validate --codex` against a fresh codex checkout, then
+`tools/validate.py` in the codex, then a `daimonion new --preset web-api`
+render of this checkout whose `AGENTS.md` must still carry the
+codex-derived ethics sections (the unconditional active registry rows).
+Each pairwise check can stay green while the handoff between two repos
+breaks — an export schema change that drops the section header, a gating
+change that silently drops a section from the render — so a red run here
+means a downstream silent break, and it opens an issue like the other
+scheduled drift checks.

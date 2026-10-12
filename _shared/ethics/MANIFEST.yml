@@ -65,6 +65,10 @@ sections:
     file: domain/llm-appsec.md.jinja
     when: mcp
     placement: agents_md
+  - id: domain-prompt-injection
+    file: domain/prompt-injection.md.jinja
+    when: mcp
+    placement: agents_md
   - id: domain-ml-bias
     file: domain/ml-bias.md.jinja
     when: data_science

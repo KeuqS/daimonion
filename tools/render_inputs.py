@@ -37,8 +37,46 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 TOP = Path(__file__).resolve().parent.parent
+
+
+def digest_bytes(data: bytes) -> str:
+    """The sha256 hex digest of `data` (the one byte-hash every manifest uses)."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _yaml_error_details(error: Exception) -> str:
+    """The one-line detail for a YAML failure (message without the mark context)."""
+    text = str(error).strip().splitlines()
+    return text[0] if text else type(error).__name__
+
+
+def read_yaml_mapping(path: Path) -> dict[str, Any]:
+    """The YAML mapping at `path`, or a loud error naming it.
+
+    The one "read a YAML file that must hold a mapping" helper: every preset
+    reader, answers-file reader and support/manifest loader routes through it,
+    so a missing file, unparsable YAML and a non-mapping payload fail the same
+    way. Raises the builtin `FileNotFoundError`/`ValueError` subclasses the
+    callers already catch -- never a new error type -- so the callers' except
+    clauses only move, never change meaning.
+    """
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        msg = f"{path} is not valid YAML: {_yaml_error_details(error)}"
+        raise ValueError(msg) from error
+    if loaded is None:
+        loaded = {}
+    if not isinstance(loaded, dict):
+        msg = f"{path} is not a mapping"
+        raise TypeError(msg)
+    return loaded
+
 
 RENDER_INPUT_DIRS = ("template", "_shared")
 """The trees a render expands: every file under them is a render input."""
