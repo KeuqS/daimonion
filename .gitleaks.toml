@@ -23,3 +23,11 @@ id = "deidentification-salt"
 description = "De-identification salt must never enter the repository (see data/DEIDENTIFICATION.md: the salt never enters this repository)."
 regex = '''(?i)\b(secret_salt|deidentification_salt|pseudonym_salt)\s*=\s*['"][^'"]+['"]'''
 tags = ["privacy", "de-identification"]
+
+# Test fixtures: dummy secrets live here on purpose (scanner regression data
+# and Z3 witness matrices embed synthetic tokens). They are not credentials.
+[allowlist]
+paths = [
+  '''tests/test_gitleaks_precommit\.py''',
+  '''tests/matrix/witnesses\.jsonl''',
+]

@@ -41,16 +41,22 @@ def test_gitleaks_config_ships_into_generated_projects():
     )
 
 
-def test_hygiene_workflow_runs_gitleaks_sha_pinned():
-    workflow = yaml.safe_load(HYGIENE.read_text(encoding="utf-8"))
-    refs = [
-        step["uses"]
-        for job in workflow["jobs"].values()
-        for step in (job.get("steps") or [])
-        if str(step.get("uses", "")).startswith("gitleaks/gitleaks-action")
-    ]
-    assert refs, "the hygiene workflow must run gitleaks"
-    assert all(re.fullmatch(r"gitleaks/gitleaks-action@[0-9a-f]{40}", ref) for ref in refs), refs
+def test_hygiene_workflow_runs_gitleaks_pinned_binary():
+    """The hygiene workflow downloads a pinned gitleaks release binary and
+    scans the full git history (checkout fetch-depth: 0) — no license fee,
+    unlike gitleaks-action v3 which charges org accounts."""
+    src = HYGIENE.read_text(encoding="utf-8")
+    assert "gitleaks/gitleaks-action" not in src, "gitleaks-action v3 requires a paid license for orgs"
+    version_m = re.search(r"GITLEAKS_VERSION: (\d+\.\d+\.\d+)", src)
+    assert version_m, "GITLEAKS_VERSION must pin the downloaded binary"
+    download = re.search(
+        r"gitleaks/gitleaks/releases/download/v\$\{GITLEAKS_VERSION\}/gitleaks_\$\{GITLEAKS_VERSION\}_linux_x64\.tar\.gz",
+        src,
+    )
+    assert download, "the step must download the pinned release tarball"
+    assert re.search(r"gitleaks git --redact --config \.gitleaks\.toml", src), (
+        "the scan must run `gitleaks git` with the repo config"
+    )
 
 
 def test_sealed_secrets_allowlist_stays_yaml_scoped():

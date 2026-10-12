@@ -26,8 +26,11 @@
 - [x] ~~**v1.0.0 リリース**~~ → **7.0.0 に変更（2026-10-05）**: copier は最大タグを
       採用するため 6.1.0 がある限り v1.0.0 は選ばれない。詳細 TODO.md §39.3。
       ✅ 7.0.0 は 2026-10-05 公開・Latest 済み
-- [ ] **Secrets 再設定（2026-10-06 時点で `GITLEAKS_LICENSE` の値のみ残り）**: org 再作成で旧リポの secret が消滅。
-      `GITLEAKS_LICENSE` — secret 自体は存在するが action に空で届く。エージェント側の配管（`_hygiene.yml` の `workflow_call` secret 宣言 + env 受け渡し、`ci.yml` 本体・生成物の forward）は PR #19 で修正済み。残りは**保存値が空/不正**の可能性が高く、API では値を確認できない。対処: gitleaks.io で無料 org キーを再取得し `gh secret set GITLEAKS_LICENSE --repo ConstitutiveTemplates/daimonion` で再設定。
+- [x] **`GITLEAKS_LICENSE` — 構造解決（2026-10-13、エージェント）**: gitleaks-action v3 の
+      org 課金要求を、pin 版 gitleaks バイナリ直接実行（`_hygiene.yml` の
+      `GITLEAKS_VERSION: 8.30.1` + release tarball ダウンロード）に置き換えて撤廃。
+      secret 再設定は不要になった。test fixture の誤検知は `.gitleaks.toml` の
+      allowlist（`tests/test_gitleaks_precommit.py`, `tests/matrix/witnesses.jsonl`）で解消。
       ~~`EXAMPLE_DEPLOY_KEY`~~ — ✅ 2026-10-06 にエージェントが再設定（`daimonion-example` に write 権限の deploy key を登録 + secret 設定。秘密鍵は破棄済み）。push 後の `example / update` 実走で有効性を最終確認する。
       `PYPI_API_TOKEN` — 未設定のまま（PyPI 側の発行が必要）。
       **deploy key 方式で継続決定（2026-10-05）**: org Settings →
@@ -65,11 +68,10 @@
 
 **今週（ブロッカー優先）**:
 
-- [ ] **Secrets 3種を再設定**: `GITLEAKS_LICENSE` / ~~`EXAMPLE_DEPLOY_KEY`~~ /
-      `PYPI_API_TOKEN`。`GITLEAKS_LICENSE` は保存値自体が空/不正の診断で、
-      配管修正は PR #19 で merge 済み（2026-10-06）。再取得した org キーの
-      `gh secret set` が残作業。設定後は #2（scheduled check）の次回週次実行で
-      緑を確認して close。
+- [ ] **Secrets 再設定**: ~~`GITLEAKS_LICENSE`~~（2026-10-13 構造解決:
+      gitleaks-action → pin バイナリ直実行に置換、secret 不要化）/ ~~`EXAMPLE_DEPLOY_KEY`~~ /
+      `PYPI_API_TOKEN` だけが残作業。GITLEAKS_LICENSE は 2026-10-13 に
+      構造解決（secret 不要化）のため再設定不要。
 - [ ] **PyPI `daimonion` の確保**: 0.0.0 プレースホルダ公開
       （`uv build` + `uv publish`。`PYPI_API_TOKEN` 前提）。`uvx daimonion`
       （git+ URL なし）を実現するかの判断も同時に。
@@ -87,8 +89,8 @@
 - `daimonion.dev` ドメイン取得（現在 NXDOMAIN、低優先）
 - 内部メモ用 private リポ/Wiki（§40: `notes/outreach/`・`copier-fork/`・本ファイルの移設先）
 - 定期リリース周期（§40。現在 PR 経由の運用は開始済み）
-- push protection の再有効化（Phase 2 の注意書き参照）— 2026-10-09 レビューで優先度上げ:
-  `GITLEAKS_LICENSE` 欠落で gitleaks も赤のため、現在は秘密情報検知が二重に停止中。
+- push protection の再有効化（Phase 2 の注意書き参照）— gitleaks は 2026-10-13 に
+  バイナリ方式で復旧済み（secrets 検知は動作中）。残る停止は push protection のみ。
   履歴の疑似値を allowlist 化して早期に再有効化（TODO.md §41）
 - showcase 用の自プロジェクト選定（Phase 4）
 

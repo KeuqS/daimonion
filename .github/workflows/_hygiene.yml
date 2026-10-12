@@ -1,12 +1,11 @@
 on:
   workflow_call:
-    secrets:
-      GITLEAKS_LICENSE:
-        # Optional: generated projects on personal accounts don't need a
-        # gitleaks license; organization repos (this one) pass the secret in.
-        required: false
 permissions:
   contents: read
+
+env:
+  # Pinned gitleaks binary version -- bump via check-upstream.
+  GITLEAKS_VERSION: 8.30.1
 
 jobs:
   hygiene:
@@ -104,14 +103,17 @@ jobs:
       - name: Scan for secrets (gitleaks)
         # .gitleaks.toml under cicd_extras (the bare preset drops it), so a
         # render without the config runs no secrets scan -- the config is the
-        # contract, not a template-time if.
+        # contract, not a template-time if. Runs the pinned gitleaks binary
+        # directly: gitleaks-action v3 charges org accounts a license fee,
+        # while the upstream binary is license-free for everyone.
         if: hashFiles('.gitleaks.toml') != ''
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Org repos need a license for gitleaks-action v3; the secret is
-          # empty on personal accounts, where the check is license-free.
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git --redact --config .gitleaks.toml --verbose .
 
       - name: Lint GitHub Actions workflows (actionlint)
         uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # latest

@@ -117,7 +117,9 @@
      'run': [run ~ 'pip-audit']},
 ] + ([{'name': 'license-check',
        'desc': 'Check dependency licenses comply with ' ~ license_effective ~ ' (needs network)',
-       'run': [license_check_cmd]}] if license_check_effective else []) %}
+       'run': [license_check_cmd]}] if license_check_effective else []) + ([{'name': 'legal-check',
+       'desc': 'Scan changed files against the AGENTS.md legal/ethics triggers (needs network)',
+       'run': ['uvx --from git+https://github.com/ConstitutiveTemplates/law-lint law-lint diff --strict']}] if agents_md_effective else []) %}
 {% set docs_tasks = [
     {'name': 'docs', 'desc': 'Build documentation', 'run': [run ~ docs_build_cmd]},
     {'name': 'docs-serve', 'desc': 'Serve documentation with live reload', 'run': [run ~ docs_serve_cmd]},

@@ -134,7 +134,7 @@ def test_template_no_precommit_hygiene_in_ci(tmp_path: Path):
     # the hygiene workflow exists, is a reusable workflow, and pins actions
     hygiene = (tmp_path / ".github" / "workflows" / "_hygiene.yml").read_text()
     assert "workflow_call:" in hygiene
-    assert "gitleaks/gitleaks-action@" in hygiene
+    assert "GITLEAKS_VERSION: " in hygiene  # pinned binary, not the license-gated action
     assert "reviewdog" not in hygiene  # actionlint runs via the digest-pinned docker step
     assert "docker://rhysd/actionlint@sha256:" in hygiene
     # CI calls it and includes it in the required-checks gate

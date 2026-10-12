@@ -89,8 +89,6 @@ jobs:
   hygiene:
     if: github.event_name != 'schedule'
     uses: ./.github/workflows/_hygiene.yml
-    secrets:
-      GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   test:
     # PR/push: the fast tier (`-m "not heavy and not slow and not meta and not network"`) -- no venv builds.

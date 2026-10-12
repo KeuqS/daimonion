@@ -618,3 +618,39 @@ AI エージェントのコンテキストウィンドウ圧迫と過剰反応�
   - AI エージェントは通常時は要約と Triggers のみを参照し、該当コード編集時のみ詳細を展開可能
 - **検証と互換性の維持**:
   - `ETHICS_SECTIONS` の H1 タイトル検証、`test_ethics_registry.py` の 12 テスト、`test-fast`（1161 件全緑）、不変条件契約を 100% 保持
+
+## §48 完了: law-lint 独立 Linter 新設 + gitleaks ライセンス課金の構造解消 (2026-10-13)
+
+### law-lint（機械的法務トリガー Linter）
+- **背景**: §47 で AGENTS.md を軽量化したが、エージェントが「どのセクションが
+  自分の変更に関係するか」を判断する手段は文書読解に委ねられていた。
+  差分を機械的に grep して該当ルールを報告する独立 Linter を新設。
+- **リポジトリ**: `ConstitutiveTemplates/law-lint`（新規公開、CI 緑、
+  zizmor 適合・SHA pin 済み）。依存は `pyyaml` のみ。
+- **コマンド**: `law-lint diff`（git diff 対象のトリガー検出）、
+  `law-lint check <path>`（ファイル/ディレクトリ走査）、`--strict`（L2 で exit 1）、
+  `list-rules`。`--rules` で daimonion の `REGISTRY.yml` や codex YAML を直接ロード可能。
+- **daimonion 側の連携**:
+  - `AGENTS.md.jinja`: 「コミット前に `uvx --from git+https://github.com/ConstitutiveTemplates/law-lint law-lint diff`」を追記
+  - `_tasks.jinja`: `legal-check` タスクを `quality_tasks` に追加
+    （`agents_md_effective` ゲート、audit/license-check と同じネットワーク依存 one-off）
+  - `.github-org` プロフィールの Repositories 表に law-lint を追加
+
+### gitleaks-action のライセンス課金問題 → pin バイナリ置換
+- **症状**: gitleaks-action v3 が org アカウントで `GITLEAKS_LICENSE` を要求し、
+  hygiene ジョブが恒久赤（HUMAN_TODO「Secrets 再設定」の残件だった）。
+- **修正**: `_hygiene.yml`（テンプレート＝リポジトリ同一ファイル）で
+  `gitleaks/gitleaks-action` を削除し、`GITLEAKS_VERSION: 8.30.1` pin の
+  release tarball ダウンロード + `gitleaks git --redact --config .gitleaks.toml`
+  に置き換え。`workflow_call` の `GITLEAKS_LICENSE` secret 宣言と
+  `ci.yml`/`ci.yml.jinja` の secret forward を撤去 — secret 自体が不要になった。
+- **付随修正**:
+  - `.gitleaks.toml`（テンプレ同一）に fixture パスの allowlist を追加
+    （`tests/test_gitleaks_precommit.py` 履歴内ダミー値 + `tests/matrix/witnesses.jsonl`
+    の `use_recommended_*` キー名誤検知）。ローカル全履歴スキャンで no leaks / exit 0 確認済み
+  - `tools/check_upstream.py` の gitleaks-action 追跡を `GITLEAKS_VERSION` pin 追跡へ更新
+  - `renovate.json.jinja` から gitleaks-action を除去
+  - `tests/test_gitleaks_config.py`・`test_example_docs_ci.py` を新機構に更新
+    （test-fast 1161 件全緑）
+- **副次効果**: 「秘密情報検知が二重に停止中」だった状態のうち gitleaks 側が復旧。
+  残る人間作業は `PYPI_API_TOKEN` のみ（HUMAN_TODO 更新済み）。

@@ -286,11 +286,11 @@ def _extract_runner_pins() -> list[Pin]:
 def _extract_hygiene_pins() -> list[Pin]:
     """Extract pinned versions and digests in hygiene workflow."""
     hygiene_src = (TOP / ".github" / "workflows" / "_hygiene.yml").read_text()
-    gitleaks_m = re.search(r"gitleaks/gitleaks-action@[0-9a-f]{40} # v(\d+\.\d+\.\d+)", hygiene_src)
+    gitleaks_m = re.search(r"GITLEAKS_VERSION: (\d+\.\d+\.\d+)", hygiene_src)
     digest_m = re.search(r"rhysd/actionlint@sha256:([0-9a-f]{64})", hygiene_src)
     return [
         Pin(
-            name="gitleaks-action version (_hygiene.yml)",
+            name="gitleaks version (_hygiene.yml)",
             current=gitleaks_m.group(1) if gitleaks_m else "?",
             checkable=True,
         ),
@@ -465,8 +465,8 @@ def _resolve_one(pin: Pin, today: str) -> str | None:  # noqa: PLR0911, PLR0912,
         return _resolve_devcontainer_base(current)
     if name.startswith("just version"):
         return github_latest_release("casey/just")
-    if name.startswith("gitleaks-action version"):
-        return github_latest_release("gitleaks/gitleaks-action")
+    if name.startswith("gitleaks version"):
+        return github_latest_release("gitleaks/gitleaks")
     if name.startswith("actionlint image digest"):
         data = https_get_json("hub.docker.com", "/v2/repositories/rhysd/actionlint/tags/latest")
         digest = data.get("digest") if isinstance(data, dict) else None
@@ -490,7 +490,7 @@ def _check_copier_ceiling_drift(pin: Pin) -> tuple[bool, str]:
 def _check_exact_match_drift(pin: Pin) -> tuple[bool, str] | None:
     """Check exact equality drift against upstream."""
     by_exact_match = {
-        "gitleaks-action version": (
+        "gitleaks version": (
             f"v{pin.current}" == pin.upstream,
             f"[ok]     {pin.name}: v{pin.current}",
             f"[DRIFT]  {pin.name}: v{pin.current} -> official latest {pin.upstream}",

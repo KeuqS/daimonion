@@ -8,7 +8,7 @@
 | 経路 | 状態 | 実証 |
 |---|---|---|
 | 生成 CI Python matrix 3.11–3.14 (ubuntu, uv) | ✅ 実走 | daimonion-example CI: test (3.11/3.12/3.13/3.14) 全緑（run 37204484538） |
-| 生成 `dist` / `container` / `lint` / `docs` / `hygiene` jobs | ✅ 実走 | 同 run で dist/container/docs/lint 緑（hygiene は GITLEAKS_LICENSE 未設定で赤 — 構造は動作済み） |
+| 生成 `dist` / `container` / `lint` / `docs` / `hygiene` jobs | ✅ 実走 | 同 run で dist/container/docs/lint 緑。hygiene の gitleaks は 2026-10-13 に license-gated action → pin バイナリ直実行へ置換（secret 不要化、green） |
 | テンプレ本体の heavy tier / test-randomly | ✅ 夜間 | ci.yml schedule 03:00 JST 毎日 |
 | `_example.yml` publish | ⚠️ 経路は実走済み・現状赤 | deploy key 無効 org ポリシー（HUMAN_TODO Secrets 項） |
 | `check_upstream` network モード / `generate_license_template` | ✅ | 2026-09-21 ローカル実走記録（§19 本文） |
