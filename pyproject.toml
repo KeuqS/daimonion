@@ -285,6 +285,17 @@ task-tags = [
 "tools/*" = [
     "INP001", # implicit-namespace-package  CONTEXT: standalone maintenance scripts, not a package.
 ]
+# The lazy-facade modules (adopt/gen_docs/mcp_server) resolve re-exports via
+# __getattr__ by design: names exist only after first access, and deferred
+# imports inside functions break the facade->leaf->facade static cycle.
+# PLC0415/EM101+F401-under-__getattr__/F822-under-__all__ are the mechanism,
+# not accidents.
+"tools/adopt.py" = ["PLC0415", "EM101", "EM102", "F401", "F822"]
+"tools/gen_docs.py" = ["PLC0415", "EM101", "EM102", "F401", "F822"]
+"tools/mcp_server.py" = ["PLC0415", "EM101", "EM102", "F401", "F822"]
+"tools/adopt_*.py" = ["PLC0415"]
+"tools/gen_docs_*.py" = ["PLC0415"]
+"tools/mcp_*.py" = ["PLC0415"]
 
 [tool.ruff.format]
 docstring-code-format = true

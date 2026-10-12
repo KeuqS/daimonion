@@ -28,7 +28,9 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools.adopt_models import CRASH_POINT_ENV  # noqa: E402
+# The crash-point env var. Defined here (not in adopt_models) so this lowest
+# layer imports nothing in-repo: no import cycle is possible.
+_CRASH_POINT_ENV = "COPIER_ADOPT_CRASH_AT"
 
 
 def fire_crash_hook(point: str) -> None:
@@ -104,13 +106,13 @@ def _crash_at(point: str) -> None:
     `--recover` finishes from. Any other value, and the variable being unset,
     is a no-op: no production path is affected.
     """
-    if os.environ.get(CRASH_POINT_ENV) == point:
+    if os.environ.get(_CRASH_POINT_ENV) == point:
         os.kill(os.getpid(), signal.SIGKILL)
 
 
 def _crash_writes(phase: str) -> int | None:
     """How many writes COPIER_ADOPT_CRASH_AT asks `phase` to die after."""
-    name, _, count = os.environ.get(CRASH_POINT_ENV, "").partition(":")
+    name, _, count = os.environ.get(_CRASH_POINT_ENV, "").partition(":")
     if name != phase or not count.isdigit() or int(count) < 1:
         return None
     return int(count)

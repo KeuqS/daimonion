@@ -24,13 +24,9 @@ if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
 import yaml  # noqa: E402
-from tools.adopt_journal import recover  # noqa: E402
 from tools.adopt_models import AdoptError  # noqa: E402
 from tools.adopt_models import OwnershipError  # noqa: E402
 from tools.adopt_models import StaleJournalError  # noqa: E402
-from tools.adopt_report import render_recovery  # noqa: E402
-from tools.adopt_report import render_report  # noqa: E402
-from tools.adopt_transaction import adopt  # noqa: E402
 
 
 def _parse_data(pairs: list[str] | None) -> dict[str, Any]:
@@ -118,6 +114,9 @@ def _recover_from_cli(args: argparse.Namespace) -> int:
     Exit codes: 0 whether or not there was a journal (running it twice is a
     no-op), 2 when the journal is there but cannot be used.
     """
+    from tools.adopt_journal import recover  # noqa: E402  # deferred: facade-level cycle
+    from tools.adopt_report import render_recovery  # noqa: E402  # deferred: facade-level cycle
+
     if args.dry_run:
         print(
             "--recover undoes the interrupted run, --dry-run promises not to write: pass one of them",
@@ -139,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     `--recover` instead undoes a run that was killed, and succeeds whether or
     not there was anything left to undo.
     """
+    from tools.adopt_report import render_report  # noqa: E402
+    from tools.adopt_transaction import adopt  # deferred: breaks adopt_cli->transaction->confirm/journal cycle
+
     args = _parse_args(argv)
     if not args.path.is_dir():
         print(f"not a directory: {args.path}", file=sys.stderr)

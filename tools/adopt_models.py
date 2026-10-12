@@ -26,12 +26,12 @@ if str(TOP) not in sys.path:
 
 
 def top() -> Path:
-    """The repo root as the facade currently sees it.
+    """The repo root: the directory containing copier.yml.
 
-    Every in-repo reader goes through here -- never the module-global
-    `TOP` directly -- so `monkeypatch.setattr(tools.adopt, "TOP", ...)`
-    redirects all of them at once: the render, the ref judgement and the
-    merge scaffold expand the same tree.
+    Resolved off the facade at call time (not the module-global `TOP`
+    directly) so `monkeypatch.setattr(tools.adopt, "TOP", ...)` redirects all
+    in-repo readers at once: the render, the ref judgement and the merge
+    scaffold expand the same tree.
     """
     from tools import adopt  # noqa: PLC0415 -- top-level would be circular; at call time the facade is loaded
 
@@ -43,7 +43,9 @@ CONFIG_FILES = ("copier.yml", "copier.yaml")
 # The crash journal: written before the first change to the target, removed on
 # commit or after a rollback, and the only reason `--recover` can exist.
 JOURNAL_NAME = ".copier-adopt-journal.json"
-CRASH_POINT_ENV = "COPIER_ADOPT_CRASH_AT"
+# Canonical home is adopt_crash (lowest layer, import-cycle-safe). Re-exported
+# here for compat: tests and in-repo code use adopt.CRASH_POINT_ENV.
+from tools.adopt_crash import _CRASH_POINT_ENV as CRASH_POINT_ENV  # noqa: E402, F401
 
 
 class AdoptError(Exception):
