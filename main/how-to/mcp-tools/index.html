@@ -502,6 +502,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1276,6 +1280,60 @@
   
   
     <li class="md-nav__item">
+      <a href="../explain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Explain a Preset or an Answer
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../suggest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Propose a Configuration from Requirements
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../adopt/" class="md-nav__link">
         
   
@@ -1500,6 +1558,8 @@
   
     
     
+      
+        
       
         
       
@@ -1933,6 +1993,33 @@
     
   
   Drift Detection
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/cross-language-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cross-Language Contract
 
     
   </span>
@@ -2450,9 +2537,19 @@ witness tiers run into minutes.</p>
 <td>filesystem</td>
 </tr>
 <tr>
-<td><code>list_witnesses</code></td>
-<td>the 272 Z3 witness leaves with the tier and result the ledger records</td>
+<td><code>explain_choice</code></td>
+<td>why a preset pins what it pins / what changes when an answer deviates, from the questionnaire's own words</td>
 <td>filesystem</td>
+</tr>
+<tr>
+<td><code>suggest_config</code></td>
+<td>preset candidates for requirement words, each with reasons and pinned answers (the assistant's first step)</td>
+<td>filesystem</td>
+</tr>
+<tr>
+<td><code>validate_answers</code></td>
+<td>whether a proposed answer set is askable and copier-valid, with {question, reason} rejections</td>
+<td>questionnaire + copier's own pass, no render</td>
 </tr>
 <tr>
 <td><code>template_fingerprint</code></td>

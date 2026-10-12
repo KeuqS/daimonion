@@ -508,6 +508,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -924,6 +928,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Recommended Workflow
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-what-changed-the-composition-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check what changed: the composition contract
       </span>
     </span>
   </a>
@@ -1351,6 +1366,60 @@
   
   
     <li class="md-nav__item">
+      <a href="../explain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Explain a Preset or an Answer
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../suggest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Propose a Configuration from Requirements
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../adopt/" class="md-nav__link">
         
   
@@ -1575,6 +1644,8 @@
   
     
     
+      
+        
       
         
       
@@ -2020,6 +2091,33 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/cross-language-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cross-Language Contract
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2404,6 +2502,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#check-what-changed-the-composition-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check what changed: the composition contract
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2471,6 +2580,20 @@ that single update, plain <code>uvx copier update --trust</code> works again.</p
 <li>fix any issues found by the above</li>
 <li>commit the changes</li>
 </ul>
+<h2 id="check-what-changed-the-composition-contract">Check what changed: the composition contract<a class="headerlink" href="#check-what-changed-the-composition-contract" title="Permanent link">&para;</a></h2>
+<p>Every generated project carries <code>.daimonion-manifest.yml</code>: the composition
+contract — the template ref it was generated from, the answers file it
+describes, and the ethics sections the render distributed. It never carries
+answer values (those live in <code>.copier-answers.yml</code>), so it is safe to keep
+and compare.</p>
+<p>Before updating, record what you have; after updating, ask what moved:</p>
+<div class="highlight"><pre><span></span><code>daimonion verify /path/to/project
+daimonion verify /path/to/project --against /path/to/older-copy
+</code></pre></div>
+<p>The report checks the manifest's schema version, holds the manifest's ref
+against the answers file's <code>_commit</code>, and — with <code>--against</code> — lists which
+ref, answers, and distributed sections changed. A tampered manifest fails
+verification instead of reporting a clean bill.</p>
 
 
 
