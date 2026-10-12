@@ -33,17 +33,21 @@ if str(TOP) not in sys.path:
 _CRASH_POINT_ENV = "COPIER_ADOPT_CRASH_AT"
 
 
+# Test seam: `patch.setattr(adopt, "_crash_at", fake)` writes into the
+# *facade's* namespace (CPython never calls a module-level `__setattr__`,
+# so no mirror is possible). Resolve the fake off the facade at call time:
+# if the facade currently holds an override, it wins; otherwise `_crash_at`
+# below runs. Production path is unaffected.
 def fire_crash_hook(point: str) -> None:
-    """Invoke the installed crash hook, resolved off the facade at call time.
+    """Invoke the installed crash hook (facade override wins, else real)."""
+    import sys
 
-    Tests replace `tools.adopt._crash_at` with a raising fake; every
-    in-repo caller goes through here so the fake fires wherever the real
-    hook would, including inside the rollback, the recovery, and the
-    write-counting audit hook.
-    """
-    from tools import adopt  # noqa: PLC0415 -- top-level would be circular; at call time the facade is loaded
-
-    adopt._crash_at(point)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    facade = sys.modules.get("tools.adopt")
+    hook = getattr(facade, "_crash_at", None) if facade is not None else None
+    if hook is not None and hook is not _crash_at:
+        hook(point)
+        return
+    _crash_at(point)
 
 
 # --- crash points and signals ------------------------------------------------

@@ -290,7 +290,7 @@ task-tags = [
 # imports inside functions break the facade->leaf->facade static cycle.
 # PLC0415/EM101+F401-under-__getattr__/F822-under-__all__ are the mechanism,
 # not accidents.
-"tools/adopt.py" = ["PLC0415", "EM101", "EM102", "F401", "F822"]
+"tools/adopt.py" = ["PLC0415", "EM101", "EM102", "F401", "F822", "N807"]
 "tools/gen_docs.py" = ["PLC0415", "EM101", "EM102", "F401", "F822"]
 "tools/mcp_server.py" = ["PLC0415", "EM101", "EM102", "F401", "F822"]
 "tools/adopt_*.py" = ["PLC0415"]

@@ -43,9 +43,11 @@ CONFIG_FILES = ("copier.yml", "copier.yaml")
 # The crash journal: written before the first change to the target, removed on
 # commit or after a rollback, and the only reason `--recover` can exist.
 JOURNAL_NAME = ".copier-adopt-journal.json"
-# Canonical home is adopt_crash (lowest layer, import-cycle-safe). Re-exported
-# here for compat: tests and in-repo code use adopt.CRASH_POINT_ENV.
-from tools.adopt_crash import _CRASH_POINT_ENV as CRASH_POINT_ENV  # noqa: E402, F401
+# The crash-point env var. Duplicated (not imported) from adopt_crash on
+# purpose: adopt_models is the leaf every other leaf imports, so it must
+# import nothing in-repo. adopt_crash defines its own copy for the same
+# reason; the two literals are asserted equal in tests.
+CRASH_POINT_ENV = "COPIER_ADOPT_CRASH_AT"
 
 
 class AdoptError(Exception):

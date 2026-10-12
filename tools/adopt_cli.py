@@ -24,9 +24,21 @@ if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
 import yaml  # noqa: E402
-from tools.adopt_models import AdoptError  # noqa: E402
-from tools.adopt_models import OwnershipError  # noqa: E402
-from tools.adopt_models import StaleJournalError  # noqa: E402
+
+
+def _exc(name: str, msg: str) -> Exception:
+    """Resolve an exception class off adopt_models at raise time.
+
+    Module-level `from tools.adopt_models import ...` would re-open the
+    facade->cli->models static cycle (basedpyright reportImportCycles):
+    the facade re-exports adopt_cli, adopt_cli would import adopt_models,
+    and adopt_models is re-exported by the facade. Raises stay exact --
+    `_exc("AdoptError", msg)` IS `AdoptError(msg)` -- without the
+    module-level edge.
+    """
+    import importlib
+
+    return getattr(importlib.import_module("tools.adopt_models"), name)(msg)
 
 
 def _parse_data(pairs: list[str] | None) -> dict[str, Any]:
@@ -34,7 +46,7 @@ def _parse_data(pairs: list[str] | None) -> dict[str, Any]:
     for pair in pairs or []:
         if "=" not in pair:
             msg = f"--data expects key=value, got {pair!r}"
-            raise AdoptError(msg)
+            raise _exc("AdoptError", msg)
         key, value = pair.split("=", 1)
         data[key.strip()] = yaml.safe_load(value)
     return data
@@ -45,11 +57,11 @@ def _load_answers(path: Path | None) -> dict[str, Any]:
         return {}
     if not path.is_file():
         msg = f"answers file not found: {path}"
-        raise AdoptError(msg)
+        raise _exc("AdoptError", msg)
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     if loaded is not None and not isinstance(loaded, dict):
         msg = f"{path}: expected a mapping of answers"
-        raise AdoptError(msg)
+        raise _exc("AdoptError", msg)
     return dict(loaded or {})
 
 
@@ -115,6 +127,7 @@ def _recover_from_cli(args: argparse.Namespace) -> int:
     no-op), 2 when the journal is there but cannot be used.
     """
     from tools.adopt_journal import recover  # noqa: E402  # deferred: facade-level cycle
+    from tools.adopt_models import AdoptError  # noqa: E402  # deferred: facade-level cycle
     from tools.adopt_report import render_recovery  # noqa: E402  # deferred: facade-level cycle
 
     if args.dry_run:
@@ -138,6 +151,9 @@ def main(argv: list[str] | None = None) -> int:
     `--recover` instead undoes a run that was killed, and succeeds whether or
     not there was anything left to undo.
     """
+    from tools.adopt_models import AdoptError  # noqa: E402  # deferred: facade-level cycle
+    from tools.adopt_models import OwnershipError  # noqa: E402  # deferred: facade-level cycle
+    from tools.adopt_models import StaleJournalError  # noqa: E402  # deferred: facade-level cycle
     from tools.adopt_report import render_report  # noqa: E402
     from tools.adopt_transaction import adopt  # deferred: breaks adopt_cli->transaction->confirm/journal cycle
 
