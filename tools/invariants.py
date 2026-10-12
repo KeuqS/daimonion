@@ -59,11 +59,12 @@ if str(TOP) not in sys.path:  # tests import tools/ the same way (no root packag
     sys.path.insert(0, str(TOP))
 
 from tools import when_model  # noqa: E402
+from tools.questionnaire import GATE_PREFIX  # noqa: E402
+from tools.questionnaire import INCLUDE_PREFIX  # noqa: E402
+from tools.questionnaire import static_str_choices  # noqa: E402
 
 #: The file this module is the reader of.
 PATH = TOP / "tests" / "matrix" / "invariants.yml"
-
-GATE_PREFIX = "use_recommended_"
 
 #: The witness tiers a row may declare (tests/test_witness_matrix.py's tiers).
 TIERS = ("full", "fast", "best_effort", "none")
@@ -335,12 +336,12 @@ def _unique_pairs(pairs: list[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
 
 
 def _static_choices(questions: dict[str, dict], name: str) -> list[str]:
-    """A question's choice values, mapping form normalized (when_model.static_str_choices)."""
+    """A question's choice values (mapping labels normalized), or a loud error when it has none."""
     choices = questions[name].get("choices")
     values = (
         [str(value) for value in choices.values()]
         if isinstance(choices, dict)
-        else [str(value) for value in when_model.static_str_choices(questions[name])]
+        else [str(value) for value in static_str_choices(questions[name])]
     )
     if not values:
         msg = f"question {name!r} has no static choices; the leaf space needs a fixed domain"
@@ -363,7 +364,7 @@ def questionnaire_vocabulary(questions: dict[str, dict] | None = None) -> Vocabu
         project_types=tuple(_static_choices(questions, "project_type")),
         categories=categories,
         oj_kind_choices={category: tuple(_oj_kind_choices(questions, category)) for category in categories},
-        includes=tuple(name for name in questions if name.startswith("include_")),
+        includes=tuple(name for name in questions if name.startswith(INCLUDE_PREFIX)),
         gates=tuple(name for name in questions if name.startswith(GATE_PREFIX)),
         bot_platforms=tuple(_static_choices(questions, "bot_platform")),
         bot_platform_default=str(questions["bot_platform"]["default"]),

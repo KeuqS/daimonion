@@ -93,6 +93,8 @@ if str(TOP) not in sys.path:  # tests import tools/ the same way (no root packag
 from tools import answers  # noqa: E402
 from tools import invariants  # noqa: E402
 from tools import when_model  # noqa: E402
+from tools.questionnaire import GATE_PREFIX  # noqa: E402
+from tools.questionnaire import INCLUDE_PREFIX  # noqa: E402
 
 # Every leaf's declared artifacts, its class's tier and the excluded question
 # types live in one file, read through its loader (TODO §26.4 item 4): this
@@ -191,8 +193,6 @@ DISTRIBUTION_VARIANTS: tuple[tuple[str, list[str]], ...] = (
     ("commercial+oss", ["commercial", "oss"]),
 )
 
-GATE_PREFIX = "use_recommended_"
-
 # gates whose `when` the projection below keeps at "always asked".
 UNCONDITIONAL_GATES: tuple[str, ...] = (
     "use_recommended_toolchain",
@@ -284,7 +284,7 @@ def _check_includes(questions: dict[str, dict]) -> None:
     unaccounted = sorted(
         name
         for name in questions
-        if name.startswith("include_")
+        if name.startswith(INCLUDE_PREFIX)
         and name not in INCLUDE_LAYERS
         and name not in excluded_questions
         and name not in varied_details

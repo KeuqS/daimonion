@@ -82,13 +82,35 @@ LAYERS: dict[str, tuple[str, frozenset[str]]] = {
     ),
     "machinery": (
         "pure transformations and verifiers over template/adoption artifacts",
-        frozenset({"file_merge", "invariants", "pyproject_merge", "z3_witnesses"}),
+        frozenset(
+            {
+                "file_merge",
+                "gen_docs_blocks",
+                "gen_docs_graph",
+                "gen_docs_model",
+                "gen_docs_prose",
+                "gen_docs_sections",
+                "invariants",
+                "pyproject_merge",
+                "z3_witnesses",
+            }
+        ),
     ),
     "drivers": (
         "act on real trees with copier/subprocess; consume the machinery",
         frozenset(
             {
                 "adopt",
+                "adopt_cli",
+                "adopt_confirm",
+                "adopt_crash",
+                "adopt_files",
+                "adopt_journal",
+                "adopt_merge",
+                "adopt_models",
+                "adopt_ref",
+                "adopt_report",
+                "adopt_transaction",
                 "answers_for",
                 "batch",
                 "detect",
@@ -105,7 +127,21 @@ LAYERS: dict[str, tuple[str, frozenset[str]]] = {
     ),
     "frontends": (
         "the entry points a human or an agent calls; consume the drivers",
-        frozenset({"cli", "explain", "gen_docs", "gen_ethics_appendix", "mcp_server"}),
+        frozenset(
+            {
+                "cli",
+                "explain",
+                "gen_docs",
+                "gen_ethics_appendix",
+                "mcp_project",
+                "mcp_questionnaire",
+                "mcp_render",
+                "mcp_render_loop",
+                "mcp_server",
+                "mcp_shared",
+                "mcp_witness",
+            }
+        ),
     ),
 }
 

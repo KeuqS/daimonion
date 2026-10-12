@@ -12,10 +12,13 @@ This module resolves the includes in the same order copier merges them, so
 the returned list *is* the ask order, and keeps the raw field values (the
 defaults are templates; they are reported as written, not evaluated).
 
-It is the one parser for this questionnaire: tools/when_model.py layers the
-`when`-expression semantics on the raw view exposed here
-(`load_raw_questions`), and copier's own `load_template_config` stays only a
-differential oracle in tests (which pin that the two agree).
+It is the one home for the questionnaire's *shape*: the parse, the gate /
+layer prefixes, the internal-variable predicates (`bool_internals` and
+friends), the static choice values, the question-name scan and the
+`_skip_if_exists` read. tools/when_model.py layers the `when`-expression
+*semantics* on the raw view exposed here (`load_raw_questions`), and copier's
+own `load_template_config` stays only a differential oracle in tests (which
+pin that the two agree).
 
 Usage:
     python tools/questionnaire.py           # one line per question
@@ -39,6 +42,17 @@ TOP = Path(__file__).resolve().parent.parent
 CONFIG = TOP / "copier.yml"
 DOCUMENT_SPLIT = re.compile(r"(?m)^---\s*$")
 INCLUDE_LINE = re.compile(r"^\s*!include\s+(\S+)\s*$")
+# A question-name line in copier.yml / questions/*.yml: a top-level key with
+# no value. MULTILINE, so it also finds the names in `git show` output
+# (tools/adopt.py's ref scan reads it from there).
+QUESTION_LINE = re.compile(r"^([a-z][a-z0-9_]*):\s*$", re.MULTILINE)
+
+#: The `use_recommended_*` gate questions' prefix (the leaf space, the
+#: invariants vocabulary and the witness tiers all key off it).
+GATE_PREFIX = "use_recommended_"
+
+#: The `include_*` opt-in layer questions' prefix.
+INCLUDE_PREFIX = "include_"
 
 
 def _significant_lines(chunk: str) -> list[str]:
@@ -68,8 +82,8 @@ class QuestionnaireError(Exception):
 class TolerantLoader(yaml.SafeLoader):
     """SafeLoader that ignores copier's custom tags instead of failing.
 
-    The one tolerant loader for the questionnaire's YAML: tools/detect.py's
-    `_skip_if_exists` read uses it too.
+    The one tolerant loader for the questionnaire's YAML: every read of
+    copier.yml / questions/*.yml goes through it.
     """
 
 
@@ -235,6 +249,107 @@ def load_raw_questions(config: Path | None = None) -> tuple[dict[str, dict[str, 
     entries, _settings = _read_entries(config or CONFIG)
     questions = {name: raw for name, raw, _source in entries if not name.startswith("_") and isinstance(raw, dict)}
     return questions, list(questions)
+
+
+def unbrace(text: Any) -> str:
+    """The expression inside a Jinja tag: `{{ x }}` -> `x`, plain strings pass through."""
+    inner = str(text).strip()
+    if inner.startswith("{{") and inner.endswith("}}"):
+        inner = inner[2:-2]
+    return inner.strip("+- \t")
+
+
+def is_internal_details(details: dict[str, Any]) -> bool:
+    """Whether raw question details describe a derived variable (`when: false`, never asked)."""
+    return details.get("when") is False
+
+
+def bool_internals(questions: dict[str, dict]) -> dict[str, str]:
+    """The named boolean internals: `when: false` entries whose type is bool, name -> definition.
+
+    The one home for this predicate (tools/predicates.py re-exports it for
+    its report, tools/detect.py resolves path conditions through
+    `internal_conditions` below): string-valued internals (`pkg_dir`, ...)
+    compute placements and names, not predicates, so they are not sites.
+    """
+    return {
+        name: unbrace(details.get("default"))
+        for name, details in sorted(questions.items())
+        if is_internal_details(details) and details.get("type") == "bool" and details.get("default") is not None
+    }
+
+
+def internal_conditions(questions: dict[str, dict]) -> dict[str, str]:
+    """Every `when: false` internal name -> its default expression, as written.
+
+    The bool-typed subset is `bool_internals`; this is the full map, for
+    readers that expand derived-flag names textually (path conditions).
+    """
+    return {
+        name: str(details["default"])
+        for name, details in questions.items()
+        if is_internal_details(details) and details.get("default")
+    }
+
+
+def str_internal_names(questions: dict[str, dict]) -> set[str]:
+    """Names of `when: false` internals that are not bool-typed (outside the `when` grammar)."""
+    return {
+        name for name, details in questions.items() if is_internal_details(details) and details.get("type") != "bool"
+    }
+
+
+def static_str_choices(question: dict) -> list[str]:
+    """Return a question's static (non-templated) choice values, or []."""
+    choices = question.get("choices")
+    if not isinstance(choices, list):
+        return []
+    values: list[str] = []
+    for c in choices:
+        if isinstance(c, dict):
+            value = c.get("value")
+        elif isinstance(c, (list, tuple)) and len(c) == 2:
+            value = c[1]
+        else:
+            value = c
+        if isinstance(value, str):
+            values.append(value)
+    return values
+
+
+def declared_names(repo_root: Path) -> set[str]:
+    """Question names the template asks (top-level keys of its config files).
+
+    A line scan (not a YAML parse): `--answers` must not emit an answer the
+    questionnaire does not declare, and the same scan serves the ref diff.
+    """
+    names: set[str] = set()
+    for path in [repo_root / "copier.yml", *sorted((repo_root / "questions").glob("*.yml"))]:
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = QUESTION_LINE.match(line)
+            if match:
+                names.add(match.group(1))
+    return names
+
+
+def skip_if_exists(config_path: Path) -> set[str]:
+    """Read `_skip_if_exists` from a copier.yml (tolerating copier's custom tags)."""
+    try:
+        # noqa: S506  WHYNOT: TolerantLoader subclasses SafeLoader; it only
+        # stops copier's !include tags from raising, and constructs nothing.
+        documents = list(yaml.load_all(config_path.read_text(encoding="utf-8"), Loader=TolerantLoader))  # noqa: S506
+    except (yaml.YAMLError, OSError):
+        return set()
+    # copier.yml is one document per !include, and _skip_if_exists lives in
+    # the last one; merge them all.
+    merged: dict[str, Any] = {}
+    for document in documents:
+        if isinstance(document, dict):
+            merged.update(document)
+    entries = merged.get("_skip_if_exists") or []
+    return {str(entry) for entry in entries if isinstance(entry, str)}
 
 
 def questions_by_name(config: Path | None = None) -> dict[str, Question]:

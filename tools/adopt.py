@@ -1,47 +1,25 @@
 #!/usr/bin/env python3
 """Adopt this template into an existing project, reversibly.
 
-Adoption has three failure modes that `copier copy` alone does not protect
-against, all measured against copier 9.18.1:
+Facade over the `tools/adopt_*` split: every name this module ever
+exported is still importable from here (`adopt.adopt`,
+`adopt.JOURNAL_NAME`, `adopt._crash_at`, ...), and `python tools/adopt.py`
+still runs the CLI. New code should import the owning module directly
+(`tools.adopt_transaction.adopt`, `tools.adopt_journal.recover`, ...);
+this module only re-exports.
 
-1. **A half-written destination.** A file the template also ships
-   (`.github/workflows/ci.yml`, `renovate.json`, ...) that already exists is a
-   *conflict*: copier stops with `Interactive session required` and exits 1 --
-   after writing every file it had already rendered. The project is left in a
-   state that is neither before nor after.
-2. **Silent replacement.** Passing `--overwrite` avoids the stop by replacing
-   those files, including collisions nobody listed.
-3. **Expanding the wrong revision.** `copier copy <url>` resolves the latest
-   *tag*, and a fork's inherited tags can point at a long-abandoned ancestor
-   with a different questionnaire.
+The split, by responsibility:
 
-This driver closes all three:
-
-- it reads the collisions from `tools/detect.py` and passes them to copier as
-  `skip_if_exists`, so the adopter's files are left alone and everything else
-  is still added;
-- it renders with `overwrite=False` and *verifies* afterwards that no existing
-  file changed (by content) and that nothing disappeared -- restoring the
-  originals and deleting what the run created if anything did;
-- it resolves the revision by asking whether the latest tag actually carries
-  this questionnaire, falling back to the default branch when it does not.
-
-A fourth promise, about the process rather than about copier: nothing it
-writes is ever unrecoverable. Before the first byte of the project changes,
-the run writes a journal (`.copier-adopt-journal.json`, in the target) holding
-the old bytes of every file it may change and the path of every file it may
-create, and fsyncs it and its directory. A SIGINT or SIGTERM is therefore a
-rollback like any other failure, and a SIGKILL, a crash or a power loss leaves
-the journal behind for `--recover` to undo the run from. The journal is
-removed only once the run has committed or been undone, so finding one means
-the project is not in a state anybody chose: a new adoption refuses to start
-over it.
-
-What it deliberately does not do: merge the adopter's configuration *into*
-the template's. Splitting a `pyproject.toml` into sections and reconciling
-them with a generated one is not something a renderer can do correctly (see
-notes/SPEC-adoption.md section 12); the run ends by telling you what to wire
-by hand instead.
+- `tools.adopt_models`: errors, records, constants, the repo-root reader.
+- `tools.adopt_ref`: which revision to expand, which answers to use.
+- `tools.adopt_merge`: the merge step (plan and apply).
+- `tools.adopt_files`: durable tree surgery (snapshot, verify, roll back).
+- `tools.adopt_journal`: the crash journal and `recover`.
+- `tools.adopt_crash`: crash points and the signal rollback.
+- `tools.adopt_transaction`: the `adopt` transaction itself.
+- `tools.adopt_confirm`: the merge confirmation prompt.
+- `tools.adopt_report`: reports and the add-only verdict.
+- `tools.adopt_cli`: argument parsing and `main`.
 
 Usage:
     python tools/adopt.py /path/to/project --dry-run     # plan only
@@ -58,1410 +36,171 @@ was not given), 4 a previous run left its journal behind -- recover it first.
 
 from __future__ import annotations
 
-import argparse
-import base64
-import contextlib
-import json
-import os
-import shutil
-import signal
 import sys
-import tempfile
-import threading
-import tomllib
-from collections.abc import Callable
-from collections.abc import Generator
-from dataclasses import dataclass
-from dataclasses import field
-from datetime import UTC
-from datetime import datetime
 from pathlib import Path
-from types import FrameType
-from typing import Any
-
-import yaml
 
 TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools import batch  # noqa: E402
-from tools import detect  # noqa: E402
-from tools import file_merge  # noqa: E402
-from tools import pyproject_merge  # noqa: E402
-
-CONFIG_FILES = ("copier.yml", "copier.yaml")
-
-# The crash journal: written before the first change to the target, removed on
-# commit or after a rollback, and the only reason `--recover` can exist.
-JOURNAL_NAME = ".copier-adopt-journal.json"
-CRASH_POINT_ENV = "COPIER_ADOPT_CRASH_AT"
-
-
-class AdoptError(Exception):
-    """The request cannot be carried out as asked."""
-
-
-class OwnershipError(AdoptError):
-    """Another copier template owns the target (a refusal, not a failure)."""
-
-
-class StaleJournalError(AdoptError):
-    """A previous run left its journal behind: recover it before adopting."""
-
-
-@dataclass
-class _Run:
-    """What the render produced, for the steps that verify or amend it."""
-
-    target: Path
-    backup: dict[str, bytes]
-    data: dict[str, Any]
-    ref: str
-    existing: set[str]
-    before_dirs: set[str]
-
-
-@dataclass
-class Adoption:
-    """The plan, what the run did, and -- when it failed -- what was undone."""
-
-    target: str
-    mode: str
-    ref: str
-    ref_reason: str
-    skip: list[str] = field(default_factory=list)
-    created: list[str] = field(default_factory=list)
-    unchanged: list[str] = field(default_factory=list)
-    restored: list[str] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
-    ok: bool = False
-    applied: bool = False
-    error: str | None = None
-    notes: list[str] = field(default_factory=list)
-    deps: dict[str, Any] | None = None
-    tool_config: dict[str, Any] | None = None
-    files_merged: list[dict[str, Any]] = field(default_factory=list)
-    cancelled: bool = False
-    declined: list[str] = field(default_factory=list)
-
-    def as_dict(self) -> dict[str, Any]:
-        """Serializable form used by --json and the MCP tool."""
-        return {
-            "target": self.target,
-            "mode": self.mode,
-            "ref": self.ref,
-            "ref_reason": self.ref_reason,
-            "skip": self.skip,
-            "created_count": len(self.created),
-            "created": self.created,
-            "unchanged": self.unchanged,
-            "restored": self.restored,
-            "removed": self.removed,
-            "ok": self.ok,
-            "applied": self.applied,
-            "error": self.error,
-            "notes": self.notes,
-            "deps": self.deps,
-            "tool_config": self.tool_config,
-            "files_merged": self.files_merged,
-            "cancelled": self.cancelled,
-            "declined": self.declined,
-        }
-
-
-@dataclass
-class Recovery:
-    """What `--recover` found in the journal, and what it put back."""
-
-    target: str
-    journal: str
-    found: bool = False
-    applied: bool = False
-    restored: list[str] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
-
-    def as_dict(self) -> dict[str, Any]:
-        """Serializable form used by --json."""
-        return {
-            "target": self.target,
-            "journal": self.journal,
-            "found": self.found,
-            "applied": self.applied,
-            "restored_count": len(self.restored),
-            "restored": self.restored,
-            "removed_count": len(self.removed),
-            "removed": self.removed,
-            "notes": self.notes,
-        }
-
-
-def _ref_questions(ref: str) -> set[str]:
-    """Question names declared at `ref`, read out of git without a checkout."""
-    names: set[str] = set()
-    paths = [*CONFIG_FILES, *(p for p in _ref_question_files(ref))]
-    for path in paths:
-        shown = batch.git(TOP, "show", f"{ref}:{path}")
-        if shown.returncode != 0:
-            continue
-        names.update(detect.QUESTION_LINE.findall(shown.stdout))
-    return names
-
-
-def _ref_question_files(ref: str) -> list[str]:
-    listing = batch.git(TOP, "ls-tree", "-r", "--name-only", ref, "--", "questions")
-    if listing.returncode != 0:
-        return []
-    return [line for line in listing.stdout.splitlines() if line.endswith((".yml", ".yaml"))]
-
-
-def resolve_ref(requested: str | None = None) -> tuple[str, str]:
-    """Choose the revision to expand: the latest tag only if it is this questionnaire.
-
-    `copier copy` without `--vcs-ref` resolves the repository's newest tag.
-    This fork tags its own releases, so that tag normally is the right
-    questionnaire. It is still used only when it declares the same questions
-    as this checkout -- a tag left over from before the fork detach points at
-    a different template -- and otherwise the default branch is used, with the
-    reason reported. `--ref` names a revision explicitly; `--ref HEAD` expands
-    the working tree for local iteration.
-    """
-    if requested:
-        return requested, "requested explicitly"
-    latest = batch.git(TOP, "describe", "--tags", "--abbrev=0")
-    branch = batch.git(TOP, "rev-parse", "--abbrev-ref", "HEAD")
-    branch_name = branch.stdout.strip() if branch.returncode == 0 else ""
-    tag = latest.stdout.strip() if latest.returncode == 0 else ""
-    if not tag or not branch_name or branch_name == "HEAD":
-        return "HEAD", "no usable tag or branch; rendering the working tree"
-    worktree = _ref_questions("HEAD")
-    tagged = _ref_questions(tag)
-    missing = sorted(worktree - tagged)
-    if missing:
-        reason = (
-            f"latest tag {tag} does not carry this questionnaire "
-            f"(missing {len(missing)} question(s), e.g. {', '.join(missing[:3])}); using {branch_name}"
-        )
-        return branch_name, reason
-    return tag, f"latest tag {tag} carries this questionnaire"
-
-
-def _plan_data(detection: detect.Detection, answers: dict[str, Any]) -> dict[str, Any]:
-    """The answers for this target: what detect derived, overridden by the caller."""
-    data = dict(detection.suggested_answers)
-    if detection.mode == "fresh":
-        data["existing_project"] = False
-    data.update(answers)
-    return data
-
-
-# --- the merge step ----------------------------------------------------------
-#
-# Deliberately not its own module (TODO.md §28.5 R6 asked for the candidate to
-# be weighed): this is the transaction's write phase. It records old bytes into
-# the same `_Run.backup` dict the journal covers and the rollback restores, and
-# its `_MergeError` is a rollback trigger -- so a tools/adopt_merge.py would
-# need `_Run`, `Adoption` and the undo machinery from this file while this file
-# needs the merge calls from it: a cycle whose only escapes (passing the
-# transaction through in slices, or a lazy import) cost more than the ~350
-# lines save. Cohesive and circular: it stays.
-
-# The template files an adopter commonly already has, and how to merge each.
-MERGE_KINDS = {
-    ".gitignore": "gitignore",
-    "justfile": "justfile",
-    "Makefile": "makefile",
-    "Taskfile.yml": "taskfile",
-    "tasks.py": "python_tasks",
-    "duties.py": "python_tasks",
-}
-
-# Every existing file the merge step edits, plus the CI caller's own workflow
-# it may append to. The snapshot must cover them even when the template does
-# not render them for these answers (a `Taskfile.yml` the template omits is
-# still a file the merge appends to, and the journal must hold its old bytes).
-MERGE_TARGETS = ("pyproject.toml", ".github/workflows/ci.yml", *MERGE_KINDS)
-
-
-def plan_merges(target: Path, data: dict[str, Any], ref: str) -> dict[str, Any]:
-    """Compute every merge without writing, for a dry run.
-
-    Renders the fresh scaffold it plans against and removes it afterwards. A
-    caller that already holds the run's scaffold (`_finish_with_merges` renders
-    one and the plan and the application share it) plans with `_plan_merges`
-    instead of paying for a second render of the same answers.
-    """
-    source = render_fresh_source(data, ref)
-    try:
-        return _plan_merges(target, data, source)
-    finally:
-        shutil.rmtree(source, ignore_errors=True)
-
-
-def _plan_merges(target: Path, data: dict[str, Any], source: Path) -> dict[str, Any]:
-    """The merge plan, computed against an already-rendered fresh scaffold."""
-    dependencies = pyproject_merge.merge_dependencies(target / "pyproject.toml", source / "pyproject.toml", apply=False)
-    config = pyproject_merge.merge_tool_config(
-        target / "pyproject.toml",
-        source / "pyproject.toml",
-        identity=_merge_identity(data, source),
-        apply=False,
-    )
-    files = [
-        file_merge.merge_text_file(target / name, source / name, kind, apply=False).as_dict()
-        for name, kind in MERGE_KINDS.items()
-        if (target / name).is_file() and (source / name).is_file()
-    ]
-    ci_plan = _plan_ci_jobs(target, source)
-    if ci_plan is not None:
-        files.append(ci_plan)
-    return {"dependencies": dependencies.as_dict(), "tool_config": config.as_dict(), "files": files}
-
-
-def render_fresh_source(data: dict[str, Any], ref: str) -> Path:
-    """Render a *fresh* project into a temp dir and return where it landed.
-
-    In adopt mode the template does not render the protected files at all, so
-    asking what the template would have generated means asking for the fresh
-    scaffold. The caller owns the returned directory's lifetime.
-    """
-    directory = Path(tempfile.mkdtemp(prefix="adopt-merge-"))
-    fresh = {**data, "existing_project": False, "adopt_protect": []}
-    with batch.report_stream_only():
-        batch.render(str(TOP), directory, fresh, ref)
-    return directory
-
-
-def _merge_identity(data: dict[str, Any], source: Path) -> tuple[str, ...]:
-    """Tokens that mark a value as *this project's*, not a tool preference."""
-    tokens = {
-        str(data.get(key, ""))
-        for key in ("package_name", "repo_name", "distribution_name", "github_org", "gitlab_group")
-    }
-    if (source / "pyproject.toml").is_file():
-        with contextlib.suppress(tomllib.TOMLDecodeError, KeyError, OSError):
-            tokens.add(str(tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]))
-    return tuple(sorted(token for token in tokens if token))
-
-
-def _merge_pyproject(run: _Run, adoption: Adoption, source: Path, approved: frozenset[str]) -> None:
-    """Merge dependencies and tool configuration into pyproject.toml and check for corruption."""
-    target_pyproject = run.target / "pyproject.toml"
-    before_pyproject = run.backup.get("pyproject.toml") or (
-        target_pyproject.read_bytes() if target_pyproject.is_file() else None
-    )
-    merged = pyproject_merge.merge_dependencies(target_pyproject, source / "pyproject.toml")
-    adoption.deps = merged.as_dict()
-    adoption.notes.extend(merged.notes)
-    config = pyproject_merge.merge_tool_config(
-        target_pyproject,
-        source / "pyproject.toml",
-        identity=_merge_identity(run.data, source),
-        approved=approved,
-    )
-    adoption.tool_config = config.as_dict()
-    adoption.notes.extend(config.notes)
-    problem = merge_problem(target_pyproject, before_pyproject)
-    if problem:
-        raise _MergeError(problem)
-
-
-def merge_generated_files(
-    run: _Run,
-    adoption: Adoption,
-    *,
-    approved: frozenset[str] = frozenset(),
-    approved_files: frozenset[str] = frozenset(),
-    source: Path | None = None,
-) -> None:
-    """Merge what the template generated into the files the adopter already had.
-
-    `source` is a fresh scaffold the caller already rendered: a run renders one
-    scaffold and the confirmation plan and this merge share it, because nothing
-    between showing the plan and the human's answer can change the answers or
-    the template tree. Without one, a scaffold is rendered here and removed
-    afterwards, which is what a standalone call wants; the caller's scaffold is
-    the caller's to free.
-    """
-    owned = source is None
-    if source is None:
-        source = render_fresh_source(run.data, run.ref)
-    try:
-        _merge_pyproject(run, adoption, source, approved)
-        _merge_text_files(run, adoption, source, approved_files=approved_files)
-        _merge_ci_caller(run, adoption, source, approved_files=approved_files)
-    finally:
-        if owned:
-            shutil.rmtree(source, ignore_errors=True)
-
-
-class _MergeError(Exception):
-    """A merge broke the add-only contract; the caller rolls the run back."""
-
-
-def _merge_text_files(
-    run: _Run, adoption: Adoption, source: Path, *, approved_files: frozenset[str] = frozenset()
-) -> None:
-    """Append the missing entries of the line-oriented files, keeping backups."""
-    for name, kind in MERGE_KINDS.items():
-        target_file = run.target / name
-        if not target_file.is_file() or not (source / name).is_file():
-            continue
-        before = run.backup.setdefault(name, target_file.read_bytes())
-        result = file_merge.merge_text_file(target_file, source / name, kind, append=name in approved_files)
-        adoption.files_merged.append(result.as_dict())
-        adoption.notes.extend(result.notes)
-        if result.applied and not file_merge.original_is_preserved(before, target_file.read_bytes()):
-            msg = f"merging {name} rewrote existing content"
-            raise _MergeError(msg)
-    _note_runner_mismatch(run, adoption, source)
-
-
-def _note_runner_mismatch(run: _Run, adoption: Adoption, source: Path) -> None:
-    """Tell the adopter when their runner file is not the one the answers picked."""
-    for name, kind in MERGE_KINDS.items():
-        if kind == "gitignore" or not (run.target / name).is_file():
-            continue
-        if not (source / name).is_file():
-            runners = [candidate for candidate, candidate_kind in MERGE_KINDS.items() if candidate_kind != "gitignore"]
-            rendered = ", ".join(sorted(candidate for candidate in runners if (source / candidate).is_file()))
-            adoption.notes.append(
-                f"your {name} was kept, but these answers render {rendered or 'no task runner'}; "
-                f"re-run with --data task_runner=<runner> for that runner's entries"
-            )
-
-
-def _merge_ci_caller(
-    run: _Run, adoption: Adoption, source: Path, *, approved_files: frozenset[str] = frozenset()
-) -> None:
-    """Add the template's checks beside their workflow — or into it, when approved.
-
-    The default is the non-destructive placement (`copier-ci.yml`). Appending
-    to their ci.yml happens only for a plan entry the human approved; when the
-    append turns out to be unsafe (or there was nothing to append), the run
-    falls back to the placement, so the checks are offered either way.
-    """
-    target_ci = run.target / ".github/workflows/ci.yml"
-    if not target_ci.is_file():
-        return
-    source_ci = source / ".github/workflows/ci.yml"
-    if "ci.yml" in approved_files and source_ci.is_file():
-        before = run.backup.setdefault(".github/workflows/ci.yml", target_ci.read_bytes())
-        result = file_merge.merge_ci_jobs(target_ci, source_ci, append=True)
-        adoption.files_merged.append(result.as_dict())
-        adoption.notes.extend(result.notes)
-        if result.applied:
-            if not file_merge.original_is_preserved(before, target_ci.read_bytes()):
-                msg = "merging .github/workflows/ci.yml rewrote existing content"
-                raise _MergeError(msg)
-            return
-        if not result.reported:
-            return  # nothing was missing: their workflow already carries the checks
-        adoption.notes.append("your ci.yml could not take the jobs; copier-ci.yml was added alongside instead")
-    result = file_merge.merge_ci_caller(run.target, source_ci)
-    adoption.files_merged.append(result.as_dict())
-    adoption.notes.extend(result.notes)
-
-
-def _plan_ci_jobs(target: Path, source: Path) -> dict[str, Any] | None:
-    """The plan for their ci.yml: the read-only jobs that could be appended to it."""
-    target_ci = target / ".github/workflows/ci.yml"
-    source_ci = source / ".github/workflows/ci.yml"
-    if not target_ci.is_file() or not source_ci.is_file():
-        return None
-    return file_merge.merge_ci_jobs(target_ci, source_ci, append=False).as_dict()
-
-
-def _files_under(target: Path) -> set[str]:
-    """Every file in the tree, relative to `target`."""
-    return {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()}
-
-
-def _dirs_under(target: Path) -> set[str]:
-    """Every directory in the tree, relative to `target`."""
-    return {str(path.relative_to(target)) for path in target.rglob("*") if path.is_dir()}
-
-
-def _write_bytes(path: Path, content: bytes) -> None:
-    """Write `content` at `path` and flush it to disk.
-
-    A restore is fsynced before the journal is removed: whatever a crash does
-    afterwards, the recovery that was already applied is on disk, and the
-    journal is either gone after a complete restore or still there to redo it.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-
-def _fsync_dir(directory: Path) -> None:
-    """Flush a directory entry (a rename is not durable without it)."""
-    descriptor = os.open(directory, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def _snapshot(target: Path, risky: list[str]) -> dict[str, bytes]:
-    """Content of every existing file the run could write over."""
-    backup: dict[str, bytes] = {}
-    for relative in risky:
-        path = target / relative
-        if path.is_file():
-            backup[relative] = path.read_bytes()
-    return backup
-
-
-def _verify(target: Path, backup: dict[str, bytes], before: set[str]) -> tuple[list[str], list[str], list[str]]:
-    """(changed, removed, created) -- what the render did that it should not have."""
-    changed = [
-        relative
-        for relative, content in backup.items()
-        if (target / relative).is_file() and (target / relative).read_bytes() != content
-    ]
-    removed = [relative for relative in backup if not (target / relative).exists()]
-    return sorted(changed), sorted(removed), sorted(_files_under(target) - before)
-
-
-def _remove_new_dirs(target: Path, before: set[str]) -> None:
-    """Remove the directories the run created, deepest first (the empty ones).
-
-    A render can leave an empty one behind (a `docs/how-to/` whose files were
-    all conditional), and leaving it would make "the project is unchanged" a
-    lie.
-    """
-    for relative in sorted(_dirs_under(target) - before, key=lambda name: len(Path(name).parts), reverse=True):
-        directory = target / relative
-        if directory.is_dir() and not any(directory.iterdir()):
-            directory.rmdir()
-
-
-def _roll_back(
-    target: Path, backup: dict[str, bytes], created: list[str], before_dirs: set[str]
-) -> tuple[list[str], list[str]]:
-    """Restore the backed-up files and remove every path this run created.
-
-    Returns what it actually had to put back and delete: a file that never
-    drifted is not reported as restored.
-
-    The undo is a crash region like the render: a SIGKILL after any of these
-    writes (`COPIER_ADOPT_CRASH_AT=rollback`) leaves a half-undone tree with
-    the journal still on disk -- `_remove_journal` runs only after this
-    returns -- and `--recover` finishes what the kill interrupted.
-    """
-    restored: list[str] = []
-    for relative, content in backup.items():
-        path = target / relative
-        if path.is_file() and path.read_bytes() == content:
-            continue
-        _write_bytes(path, content)
-        restored.append(relative)
-        # Crash point: a rollback killed mid-restore, with the rest of the old
-        # bytes still to go back and everything the run created still in place.
-        _crash_at("rollback")
-    removed: list[str] = []
-    for relative in created:
-        path = target / relative
-        if path.is_file():
-            path.unlink()
-            removed.append(relative)
-            # Crash point: a rollback killed mid-deletion, with a subset of the
-            # run's files gone and the journal there to name the rest.
-            _crash_at("rollback")
-    _remove_new_dirs(target, before_dirs)
-    return sorted(restored), sorted(removed)
-
-
-# --- the crash journal -------------------------------------------------------
-#
-# The in-process rollback only covers failures the process survives. A journal
-# on disk covers the rest: it is written (and fsynced) before the first byte of
-# the target changes, and removed only on commit or after a rollback, so while
-# it exists the run it describes has not committed and `--recover` can finish
-# what the rollback was going to do -- or undo a run that committed nothing.
-
-
-def journal_path(target: Path) -> Path:
-    """Where the journal of `target` lives (in the target: it must be findable)."""
-    return target / JOURNAL_NAME
-
-
-@dataclass
-class _Journal:
-    """What a killed run leaves behind for `--recover` to undo it with.
-
-    `old` is the old bytes of every file the run may modify, `existing` is
-    every file that was there before it started (so recovery can tell what the
-    run created) and `dirs` the directories (so recovery can remove the empty
-    ones it created). `may_create` is the plan itself, for the report.
-    """
-
-    target: Path
-    ref: str
-    started: str
-    may_create: list[str]
-    existing: list[str]
-    dirs: list[str]
-    old: dict[str, bytes]
-
-    def as_dict(self) -> dict[str, Any]:
-        """Serializable form; the old bytes are base64 because they are not text."""
-        return {
-            "version": 1,
-            "tool": "tools/adopt.py",
-            "target": str(self.target),
-            "ref": self.ref,
-            "started": self.started,
-            "may_create": self.may_create,
-            "existing": self.existing,
-            "dirs": self.dirs,
-            "old": {name: base64.b64encode(content).decode("ascii") for name, content in self.old.items()},
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> _Journal:
-        """Rebuild a journal, refusing anything this version did not write."""
-        if data["version"] != 1:
-            msg = f"journal version {data['version']!r} is not version 1"
-            raise ValueError(msg)
-        return cls(
-            target=Path(data["target"]),
-            ref=str(data["ref"]),
-            started=str(data["started"]),
-            may_create=[str(name) for name in data["may_create"]],
-            existing=[str(name) for name in data["existing"]],
-            dirs=[str(name) for name in data["dirs"]],
-            old={str(name): base64.b64decode(content) for name, content in data["old"].items()},
-        )
-
-
-def _write_journal(target: Path, journal: _Journal) -> None:
-    """Write the journal durably, before the first change to the target.
-
-    On disk and fsynced -- file and directory -- on purpose: it has to survive
-    the process that writes it. The rename is atomic, so a journal at its final
-    name is always complete; an unreadable one means nothing was written yet.
-    """
-    path = journal_path(target)
-    payload = json.dumps(journal.as_dict(), sort_keys=True).encode("utf-8")
-    temporary = path.with_name(f"{path.name}.new")
-    try:
-        with temporary.open("wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        Path(temporary).replace(path)
-    except OSError:
-        temporary.unlink(missing_ok=True)
-        raise
-    _fsync_dir(target)
-
-
-def _read_journal(path: Path) -> _Journal:
-    """The journal at `path`; a journal this tool cannot vouch for is not recoverable."""
-    try:
-        return _Journal.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError, TypeError, KeyError) as exc:
-        msg = (
-            f"{path} is not a journal this tool can read ({exc}); a journal is written before the "
-            "target is first written, so if nothing has touched the project since, it is a leftover "
-            "of a run that never started and safe to delete by hand"
-        )
-        raise AdoptError(msg) from exc
-
-
-def _remove_journal(target: Path) -> None:
-    """Drop the journal: the commit point of a run, and the end of a rollback.
-
-    Not fsynced, deliberately. If a power loss un-does the unlink the journal
-    comes back, and recovering twice is a no-op; if this were flushed first,
-    a crash could leave an adopted tree whose journal was already gone.
-    """
-    journal_path(target).unlink(missing_ok=True)
-
-
-def _restore(journal: _Journal) -> list[str]:
-    """Write the recorded old bytes back; returns the files that had drifted."""
-    restored: list[str] = []
-    for relative, content in journal.old.items():
-        path = journal.target / relative
-        if path.is_file() and path.read_bytes() == content:
-            continue
-        _write_bytes(path, content)
-        restored.append(relative)
-        # Crash point: a recovery killed mid-restore. The files already written
-        # back are on disk, the rest of the journal is not applied, and the
-        # journal itself is untouched -- the next `--recover` reads the same
-        # journal and converges, because every write is decided by what the
-        # tree holds now, not by how far a previous one got.
-        _crash_at("recover")
-    return sorted(restored)
-
-
-def _unlink_created_files(target: Path, journal: _Journal) -> list[str]:
-    """Delete files and directories created during the run, crashing safely at checkpoints."""
-    removed = sorted(_files_under(target) - set(journal.existing) - {JOURNAL_NAME})
-    for relative in removed:
-        (target / relative).unlink()
-        # Crash point: a recovery killed while it deletes what the run created.
-        # The old bytes are all back by now, so what is in question is a subset
-        # of the run's own files, and the journal (dropped last) still names
-        # the ones this kill got to keep: the next `--recover` removes exactly
-        # the rest and no second time.
-        _crash_at("recover")
-    _remove_new_dirs(target, set(journal.dirs))
-    return removed
-
-
-def recover(target: Path) -> Recovery:
-    """Undo an interrupted adoption from its journal, and remove the journal.
-
-    This is the whole recovery: the recorded old bytes go back, every file that
-    was not there before the run is deleted, the directories it created are
-    removed, and the journal goes last -- a kill during recovery leaves it for
-    the next `--recover`. Running it twice is a no-op: a tree that already
-    matches is rewritten nowhere, and with no journal there is nothing to do at
-    all. Both are success.
-    """
-    path = journal_path(target)
-    if not path.is_file():
-        return Recovery(target=str(target), journal=str(path), notes=["no journal: nothing to recover"])
-    journal = _read_journal(path)
-    if Path(journal.target).resolve() != target.resolve():
-        msg = f"{path} records {journal.target}, not {target}: recover it from the project it belongs to"
-        raise AdoptError(msg)
-    restored = _restore(journal)
-    removed = _unlink_created_files(target, journal)
-    _remove_journal(target)
-    recovery = Recovery(
-        target=str(target),
-        journal=str(path),
-        found=True,
-        applied=bool(restored or removed),
-        restored=restored,
-        removed=removed,
-    )
-    unplanned = [name for name in removed if name not in set(journal.may_create)]
-    if unplanned:
-        recovery.notes.append(
-            f"removed {len(unplanned)} path(s) the plan did not name (e.g. {unplanned[0]}): the render "
-            "creates files tools/detect.py does not list (copier's answers file, task output), which is "
-            "why what gets deleted is decided by what was there before the run, not by the plan"
-        )
-    return recovery
-
-
-def _refuse_stale_journal(target: Path) -> None:
-    """Refuse to adopt over the journal of a run that did not finish.
-
-    The tree is not in a state anybody chose, so a plan computed from it would
-    be a plan about an accident; `--recover` is the way out.
-    """
-    stale = journal_path(target)
-    if not stale.is_file():
-        return
-    msg = (
-        f"{stale} is still there: a previous adoption did not finish\n"
-        f"recover it first: python tools/adopt.py {target} --recover"
-    )
-    raise StaleJournalError(msg)
-
-
-def _undo_run(run: _Run, adoption: Adoption, problem: str | None, note: str) -> None:
-    """Take the whole run back -- render and merges -- and drop the journal.
-
-    What the run created is read off the disk (present now, absent before it
-    started) instead of remembered: that is the rule `--recover` applies, so a
-    kill between any two writes is undone by the same code.
-    """
-    created = sorted(_files_under(run.target) - run.existing - {JOURNAL_NAME})
-    adoption.restored, adoption.removed = _roll_back(run.target, run.backup, created, run.before_dirs)
-    _remove_journal(run.target)
-    adoption.ok = False
-    adoption.applied = False
-    adoption.error = problem
-    adoption.notes.append(note)
-
-
-# --- crash points and signals ------------------------------------------------
-#
-# SIGINT/SIGTERM are turned into the ordinary rollback; SIGKILL and power loss
-# cannot be caught at all, which is what the journal above is for.
-
-
-class _Interrupted(BaseException):
-    """A signal arrived inside the transaction: roll back like any other failure.
-
-    A `BaseException` on purpose: the exception handlers of the render and the
-    merge step must not swallow it -- and it is not an error the caller can do
-    anything about, it is the caller asking for the run to stop.
-    """
-
-
-@contextlib.contextmanager
-def _signals_roll_back() -> Generator[None]:
-    """Make SIGINT/SIGTERM mid-run a rollback instead of a half-written tree.
-
-    The handler raises once; a second signal while the restore runs is ignored,
-    because the point of the first one was to get the project back. Signals can
-    only be taken on the main thread, so a threaded caller (the MCP tool) is
-    left with the journal path alone.
-    """
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
-    interrupted = False
-
-    def handler(signum: int, _frame: FrameType | None) -> None:
-        nonlocal interrupted
-        if interrupted:
-            return
-        interrupted = True
-        msg = f"interrupted by {signal.Signals(signum).name}"
-        raise _Interrupted(msg)
-
-    previous = {number: signal.signal(number, handler) for number in (signal.SIGINT, signal.SIGTERM)}
-    try:
-        yield
-    finally:
-        for number, original in previous.items():
-            signal.signal(number, original)
-
-
-def _crash_at(point: str) -> None:
-    """Kill this process at `point` when COPIER_ADOPT_CRASH_AT asks for it.
-
-    Exists for tests/test_adopt.py and for a manual crash drill:
-    `COPIER_ADOPT_CRASH_AT=render:3` dies (SIGKILL -- uncatchable, so the run
-    really cannot clean up after itself) once the render has written three
-    files into the target, `merge:1` after the first merge write, and `verify`
-    before the run checks what it did. The undo is drillable too, the way the
-    protocol model crashes in every state: `rollback` dies inside a failing
-    run's rollback, after its first real write or deletion, and `recover`
-    dies inside `--recover`, at the first old bytes written back or created
-    file removed -- both leave the journal in place, which is what the next
-    `--recover` finishes from. Any other value, and the variable being unset,
-    is a no-op: no production path is affected.
-    """
-    if os.environ.get(CRASH_POINT_ENV) == point:
-        os.kill(os.getpid(), signal.SIGKILL)
-
-
-def _crash_writes(phase: str) -> int | None:
-    """How many writes COPIER_ADOPT_CRASH_AT asks `phase` to die after."""
-    name, _, count = os.environ.get(CRASH_POINT_ENV, "").partition(":")
-    if name != phase or not count.isdigit() or int(count) < 1:
-        return None
-    return int(count)
-
-
-def _is_write(mode: object, flags: object) -> bool:
-    """Whether an `open` audit event is a write (the drill counts only those)."""
-    if isinstance(mode, str):
-        return any(character in mode for character in "wax+")
-    return isinstance(flags, int) and bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND))
-
-
-def _under(root: Path, path: str) -> bool:
-    """Whether a write landed inside `root` (resolved: a tmp dir may be a symlink)."""
-    try:
-        return Path(path).resolve().is_relative_to(root)
-    except (OSError, RuntimeError, ValueError):
-        return False
-
-
-@contextlib.contextmanager
-def _crash_on_write(phase: str, target: Path) -> Generator[None]:
-    """Count the writes into `target` and kill the process at the requested one.
-
-    The count comes from the `open` audit event, so it is what really landed on
-    disk rather than a prediction -- and it kills on the write *after* the
-    requested one, because that event is raised before the file is opened: by
-    the time the next file is opened, the counted one is closed and complete.
-    `render:1` is therefore the instant after the first file was written, which
-    is exactly the crash point a journal has to cover.
-    """
-    wanted = _crash_writes(phase)
-    if wanted is None:
-        yield
-        return
-    root = Path(target).resolve()
-    point = f"{phase}:{wanted}"
-    written: set[str] = set()
-    active = [True]
-
-    def hook(event: str, args: tuple[Any, ...]) -> None:
-        if not active[0] or event != "open":
-            return
-        path, mode, flags = args
-        if not isinstance(path, str) or not _is_write(mode, flags) or not _under(root, path):
-            return
-        written.add(path)
-        if len(written) > wanted:
-            _crash_at(point)
-
-    sys.addaudithook(hook)
-    try:
-        yield
-    finally:
-        active[0] = False
-
-
-def _check_adopt_preconditions(target: Path, detection: detect.Detection) -> None:
-    """Verify the target can be adopted before any state is changed."""
-    _refuse_stale_journal(target)
-    if detection.mode == "update":
-        msg = "this project was already generated from this template: run `copier update` (or tools/batch.py)"
-        raise AdoptError(msg)
-    if detection.mode == "foreign":
-        msg = (
-            f"another copier template owns this project ({detection.foreign_src}); "
-            "pass takeover=True to replace its record"
-        )
-        raise OwnershipError(msg)
-
-
-def _init_adoption(
-    target: Path,
-    detection: detect.Detection,
-    resolved_ref: str,
-    reason: str,
-    skip: list[str] | None,
-) -> Adoption:
-    """Create the initial Adoption record with populated notes and skip list."""
-    adoption = Adoption(
-        target=str(target),
-        mode=detection.mode,
-        ref=resolved_ref,
-        ref_reason=reason,
-        skip=list(detection.skip if skip is None else skip),
-        notes=list(detection.notes),
-    )
-    if skip is None and detection.mode == "adopt" and not adoption.skip:
-        adoption.notes.append("no collisions: nothing existing would be replaced")
-    return adoption
-
-
-def _apply_dry_run_plan(
-    target: Path,
-    data: dict[str, Any],
-    adoption: Adoption,
-    detection: detect.Detection,
-    *,
-    merge_generated: bool,
-) -> Adoption:
-    """Calculate the dry-run plan without writing anything to disk."""
-    _plan_only(target, data, adoption.ref, adoption, detection)
-    if not merge_generated:
-        adoption.deps = None
-        adoption.tool_config = None
-        adoption.files_merged = []
-    return adoption
-
-
-def _apply_adoption_transaction(
-    run: _Run,
-    journal: _Journal,
-    adoption: Adoption,
-    *,
-    merge_generated: bool,
-    ask: Callable[[str], str] | None,
-) -> Adoption:
-    """Execute the transactional adoption: render, verify, merge, and clean up."""
-    target = run.target
-    with _signals_roll_back():
-        try:
-            _write_journal(target, journal)
-            with _crash_on_write("render", target), batch.report_stream_only():
-                batch.render(
-                    str(TOP),
-                    target,
-                    run.data,
-                    run.ref,
-                    skip_if_exists=tuple(adoption.skip),
-                    overwrite=False,
-                )
-            _crash_at("verify")
-            changed, removed, created = _verify(target, run.backup, run.existing | {JOURNAL_NAME})
-            if changed or removed:
-                problem = f"the render modified existing files ({', '.join([*changed, *removed][:5])})"
-                _undo_run(run, adoption, problem, "rolled back: the project is unchanged")
-                return adoption
-            adoption.ok = True
-            adoption.applied = True
-            adoption.created = created
-            adoption.unchanged = sorted(run.backup)
-            if merge_generated:
-                _finish_with_merges(run, adoption, ask)
-            _remove_journal(target)
-        except _Interrupted as exc:
-            _undo_run(run, adoption, f"{exc}; rolled back", "rolled back: the project is unchanged")
-        except Exception as exc:  # noqa: BLE001  WHYNOT: the render's own failure type and an unexpected one in the merge step are both rolled back, not raised.
-            _undo_run(run, adoption, f"{type(exc).__name__}: {exc}", "rolled back: the project is unchanged")
-    return adoption
-
-
-def adopt(  # noqa: PLR0913  WHYNOT: the keyword-only options are the operation's whole contract; a bag would hide them from the MCP tool schema.
-    target: Path,
-    *,
-    ref: str | None = None,
-    answers: dict[str, Any] | None = None,
-    skip: list[str] | None = None,
-    takeover: bool = False,
-    dry_run: bool = False,
-    merge_generated: bool = True,
-    ask: Callable[[str], str] | None = None,
-) -> Adoption:
-    """Plan (and unless `dry_run`, apply) an adoption of `target`.
-
-    The mutation is crash-recoverable: the journal is written and fsynced
-    before the first change and removed only when the run has committed or been
-    rolled back, so `recover` can undo whatever a killed process left.
-    """
-    detection = detect.detect(target, takeover=takeover)
-    _check_adopt_preconditions(target, detection)
-    resolved_ref, reason = resolve_ref(ref)
-    adoption = _init_adoption(target, detection, resolved_ref, reason, skip)
-    data = _plan_data(detection, answers or {})
-    if dry_run:
-        return _apply_dry_run_plan(target, data, adoption, detection, merge_generated=merge_generated)
-
-    backup = _snapshot(target, sorted({*detection.kept, *detection.collisions, *MERGE_TARGETS}))
-    before = _files_under(target)
-    before_dirs = _dirs_under(target)
-    journal = _Journal(
-        target=target,
-        ref=resolved_ref,
-        started=datetime.now(UTC).isoformat(timespec="seconds"),
-        may_create=sorted({*detection.added, f".github/workflows/{file_merge.CI_CALLER_NAME}"}),
-        existing=sorted(before),
-        dirs=sorted(before_dirs),
-        old=backup,
-    )
-    run = _Run(target=target, backup=backup, data=data, ref=resolved_ref, existing=before, before_dirs=before_dirs)
-    return _apply_adoption_transaction(run, journal, adoption, merge_generated=merge_generated, ask=ask)
-
-
-def _finish_with_merges(run: _Run, adoption: Adoption, ask: Callable[[str], str] | None) -> None:
-    """Confirm the merge plan (when asked), apply it, or take the run back.
-
-    The run's one fresh scaffold is rendered here, before the prompt, and
-    shared by the plan the human confirms and the merge that applies it:
-    within a run the answers and the template tree cannot change, so the
-    second scaffold this step used to render (three copier renders per
-    interactive adoption) produced byte-identical files. Rendering it before
-    asking also means a decline or a cancel never renders a second time, and
-    the scaffold is freed whichever way the run goes.
-    """
-    source = render_fresh_source(run.data, run.ref)
-    try:
-        confirmation = _confirm_merges(run, ask, source)
-        if confirmation.cancel:
-            _undo_run(run, adoption, None, "cancelled: the render was rolled back too")
-            adoption.cancelled = True
-            return
-        if not confirmation.merge:
-            adoption.notes.append("merges skipped: your files were left as they were")
-            return
-        try:
-            with _crash_on_write("merge", run.target):
-                merge_generated_files(
-                    run,
-                    adoption,
-                    source=source,
-                    approved=confirmation.approved,
-                    approved_files=confirmation.files,
-                )
-        except _MergeError as exc:
-            _undo_run(
-                run, adoption, f"merge failed and was rolled back: {exc}", "rolled back: the project is unchanged"
-            )
-    finally:
-        shutil.rmtree(source, ignore_errors=True)
-
-
-@dataclass(frozen=True)
-class Confirmation:
-    """The human's answer to the merge plan."""
-
-    cancel: bool = False
-    merge: bool = True
-    approved: frozenset[str] = frozenset()
-    files: frozenset[str] = frozenset()
-
-
-def _confirm_merges(run: _Run, ask: Callable[[str], str] | None, source: Path) -> Confirmation:
-    """Show what would be merged and ask; returns the answer.
-
-    Without an `ask` callback this is a no-op: the automatic plan is applied,
-    which is what a non-interactive caller (CI, an MCP tool) wants. With one,
-    the questions are the plan itself and then, one by one, the values that
-    were *not* copied because they name the generated project -- those are the
-    decisions a human should make. The plan is computed against the run's
-    already-rendered scaffold, so prompting adds no render of its own.
-    """
-    if ask is None:
-        return Confirmation()
-    plan = _plan_merges(run.target, run.data, source)
-    lines = _merge_summary_from(plan)
-    if not lines:
-        return Confirmation()
-    answer = ask(_MERGE_QUESTION.format(plan="\n".join(lines)))
-    if answer == "cancel":
-        return Confirmation(cancel=True)
-    if answer == "no":
-        return Confirmation(merge=False)
-    approved_files = _ask_about_task_files(plan, ask)
-    approved_files |= _ask_about_ci_jobs(plan, ask)
-    approved_values = _ask_about_values(plan, ask)
-    return Confirmation(approved=frozenset(approved_values), files=frozenset(approved_files))
-
-
-# The file kinds where appending means a real edit of the adopter's task list.
-TASK_APPEND_KINDS = ("taskfile", "python_tasks")
-
-
-def _ask_about_task_files(plan: dict[str, Any], ask: Callable[[str], str]) -> set[str]:
-    """Ask about the task files (Taskfile.yml, tasks.py, duties.py): appending tasks is a real edit."""
-    approved: set[str] = set()
-    for entry in plan["files"]:
-        if entry.get("kind") not in TASK_APPEND_KINDS or not entry.get("reported"):
-            continue
-        name = Path(entry["path"]).name
-        if ask(f"append these tasks to your {name}: {', '.join(entry['reported'][:8])}? [Y]es / [n]o") == "yes":
-            approved.add(name)
-    return approved
-
-
-def _ask_about_ci_jobs(plan: dict[str, Any], ask: Callable[[str], str]) -> set[str]:
-    """Ask where the template's read-only jobs go: into their ci.yml, or beside it."""
-    approved: set[str] = set()
-    for entry in plan["files"]:
-        if entry.get("kind") != "ci_jobs" or not entry.get("reported"):
-            continue
-        name = Path(entry["path"]).name
-        answer = ask(
-            f"append these jobs to your {name}: {', '.join(entry['reported'][:8])}? "
-            "[Y]es / [n]o (copier-ci.yml alongside instead)"
-        )
-        if answer == "yes":
-            approved.add(name)
-    return approved
-
-
-def _ask_about_values(plan: dict[str, Any], ask: Callable[[str], str]) -> set[str]:
-    """Ask, one by one, about the values that name this project."""
-    approved: set[str] = set()
-    approve_rest = False
-    for line in plan["tool_config"]["needs_your_value"]:
-        key_path = line.split(" (template:")[0]
-        if approve_rest:
-            approved.add(key_path)
-            continue
-        answer = ask(f"add {line}? [Y]es / [n]o / [a]ll:")
-        if answer == "all":
-            approve_rest = True
-            approved.add(key_path)
-        elif answer == "yes":
-            approved.add(key_path)
-    return approved
-
-
-_MERGE_QUESTION = """\
-these files the template also generates already exist, and this is what would
-be added to them (nothing of yours is rewritten):
-
-{plan}
-
-Apply? [Y]es / [n]o (render only) / [c]ancel:"""
-
-
-def _plan_only(target: Path, data: dict[str, Any], ref: str, adoption: Adoption, detection: detect.Detection) -> None:
-    """Fill in a dry-run result: what would be rendered, and what merged."""
-    adoption.ok = True
-    adoption.unchanged = detection.kept
-    adoption.notes.append(f"dry run: would render {len(detection.added)} new file(s)")
-    plan = plan_merges(target, data, ref)
-    adoption.deps = plan["dependencies"]
-    adoption.tool_config = plan["tool_config"]
-    adoption.files_merged = plan["files"]
-    for section in (plan["dependencies"], plan["tool_config"]):
-        adoption.notes.extend(section["notes"])
-
-
-def merge_problem(target_pyproject: Path, before: bytes | None) -> str | None:
-    """Why the merged pyproject is not acceptable, or None when it is.
-
-    The merge may only add: every requirement that was declared before must
-    still be declared, unchanged, and the file must still parse. A target that
-    did not parse *before* the merge is not the merge's fault - the merge
-    refuses to touch it and says so in its own note - so it is not a problem
-    here either (checking it in this order is what keeps a pre-broken file from
-    being reported as broken *by* the merge, which refused the whole adoption).
-    """
-    if before is None:
-        return None
-    try:
-        before_document = tomllib.loads(before.decode("utf-8"))
-    except tomllib.TOMLDecodeError:
-        return None
-    try:
-        after_document = tomllib.loads(target_pyproject.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, OSError) as exc:
-        return f"the merged file does not parse: {exc}"
-    after = pyproject_merge.declared_values(after_document)
-    for name, raw in pyproject_merge.declared_values(before_document).items():
-        if name not in after:
-            return f"{name} was dropped"
-        if after[name] != raw:
-            return f"{name} was changed from {raw!r} to {after[name]!r}"
-    return None
-
-
-def _parse_data(pairs: list[str] | None) -> dict[str, Any]:
-    data: dict[str, Any] = {}
-    for pair in pairs or []:
-        if "=" not in pair:
-            msg = f"--data expects key=value, got {pair!r}"
-            raise AdoptError(msg)
-        key, value = pair.split("=", 1)
-        data[key.strip()] = yaml.safe_load(value)
-    return data
-
-
-def _load_answers(path: Path | None) -> dict[str, Any]:
-    if path is None:
-        return {}
-    if not path.is_file():
-        msg = f"answers file not found: {path}"
-        raise AdoptError(msg)
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if loaded is not None and not isinstance(loaded, dict):
-        msg = f"{path}: expected a mapping of answers"
-        raise AdoptError(msg)
-    return dict(loaded or {})
-
-
-def _prompter(args: argparse.Namespace) -> Callable[[str], str] | None:
-    """The confirmation prompt, or None when nobody is there to answer it.
-
-    `--yes` (and any non-interactive run) applies the automatic plan: a tool
-    that blocks on stdin in CI or inside an MCP session is worse than one that
-    does the safe thing and says so. `--ask` forces the prompt.
-    """
-    if args.yes or args.dry_run:
-        return None
-    if not args.ask and not sys.stdin.isatty():
-        return None
-
-    def confirm(question: str) -> str:
-        print(question)
-        while True:
-            try:
-                answer = input().strip().lower()
-            except EOFError:
-                print("(no input; taking that as cancel)")
-                return "cancel"
-            if answer in ("", "y", "yes"):
-                return "yes"
-            if answer in ("n", "no"):
-                return "no"
-            if answer in ("c", "cancel"):
-                return "cancel"
-            if answer in ("a", "all"):
-                return "all"
-
-    return confirm
-
-
-def _render_outcome_lines(adoption: Adoption) -> list[str]:
-    """Format the status and failure details of the adoption run."""
-    if adoption.cancelled:
-        return ["cancelled -- nothing was applied"]
-    if not adoption.applied and adoption.error is None:
-        return ["dry run -- nothing written"]
-    if adoption.error is not None:
-        lines = [f"FAILED: {adoption.error}"]
-        if adoption.restored:
-            lines.append(f"  restored: {', '.join(adoption.restored)}")
-        if adoption.removed:
-            lines.append(f"  removed what the run created: {len(adoption.removed)} file(s)")
-        return lines
-    return [f"adopted: {len(adoption.created)} file(s) added, {len(adoption.unchanged)} existing file(s) untouched"]
-
-
-def render_report(adoption: Adoption) -> str:
-    """Human-readable plan and outcome."""
-    lines = [
-        f"target: {adoption.target}",
-        f"mode:   {adoption.mode}",
-        f"ref:    {adoption.ref}  ({adoption.ref_reason})",
-    ]
-    if adoption.skip:
-        lines.append(f"skip:   {' '.join(adoption.skip)}")
-    lines.append("")
-    lines.extend(_render_outcome_lines(adoption))
-    merged = _merge_summary(adoption)
-    if merged:
-        heading = "merged into your files" if adoption.applied else "would merge into your files"
-        lines += ["", heading]
-        lines.extend(f"  {line}" for line in merged)
-    if adoption.notes:
-        lines.append("")
-        lines.extend(f"  {note}" for note in adoption.notes)
-    if adoption.applied:
-        lines += [
-            "",
-            "next",
-            "  git diff     # review; the adoption only added files",
-            "  git status   # untracked additions: CI, hygiene, AGENTS.md, ...",
-        ]
-    return "\n".join(lines)
-
-
-def _merge_summary_from(plan: dict[str, Any]) -> list[str]:
-    """The merge-summary lines, computed from a plan: the one implementation.
-
-    Both readers of a merge come through here -- the confirmation prompt (via
-    `_confirm_merges`) and the human report (via `_merge_summary`) -- so the
-    plan a human approves and the outcome they review can never drift into
-    describing two different merges.
-    """
-    lines: list[str] = []
-    dependencies = plan.get("dependencies") or {}
-    if dependencies.get("added"):
-        added = [f"{section}: {', '.join(names)}" for section, names in dependencies["added"].items()]
-        lines.append(f"pyproject.toml dependencies -> {'; '.join(added)}")
-    config = plan.get("tool_config") or {}
-    if config.get("added"):
-        tables = sorted(config["added"])
-        shown = ", ".join(f"[{table}]" for table in tables[:3])
-        more = f" and {len(tables) - 3} more" if len(tables) > 3 else ""
-        lines.append(f"pyproject.toml tool config -> {len(tables)} table(s): {shown}{more}")
-    for entry in plan.get("files", []):
-        detail = ", ".join(entry.get("added", [])[:6]) + ("..." if len(entry.get("added", [])) > 6 else "")
-        if detail:
-            lines.append(f"{Path(entry['path']).name} -> {detail}")
-        elif entry.get("reported"):
-            lines.append(f"{Path(entry['path']).name} -> not written: {', '.join(entry['reported'][:6])}")
-    return lines
-
-
-def _merge_summary(adoption: Adoption) -> list[str]:
-    """One line per file the merge step touched, for the review step.
-
-    An adapter over `_merge_summary_from`, deliberately not a second rendering
-    of it: the two used to be twin implementations of the same lines (TODO.md
-    §28.5 R6), which is exactly the kind of drift a summary must not have. The
-    fields an Adoption carries are the plan's dict shape under other names, so
-    the adapter is the whole difference.
-    """
-    return _merge_summary_from(
-        {"dependencies": adoption.deps, "tool_config": adoption.tool_config, "files": adoption.files_merged}
-    )
-
-
-def render_recovery(recovery: Recovery) -> str:
-    """Human-readable recovery outcome."""
-    lines = [f"target:  {recovery.target}", f"journal: {recovery.journal}"]
-    if not recovery.found:
-        lines.append("nothing to recover: this project has no journal")
-    elif recovery.applied:
-        lines.append(f"recovered: {len(recovery.restored)} file(s) restored, {len(recovery.removed)} removed")
-    else:
-        lines.append("recovered: the project already matched the journal")
-    lines.extend(f"  {note}" for note in recovery.notes)
-    if recovery.found:
-        lines.append("  nothing of the interrupted run is left; adopt again when you are ready")
-    return "\n".join(lines)
-
-
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Adopt this template into an existing project, with rollback and crash recovery."
-    )
-    parser.add_argument("path", type=Path, help="project to adopt into (a directory)")
-    parser.add_argument("--ref", default=None, help="template revision to expand (default: judged from the tags)")
-    parser.add_argument(
-        "--answers", type=Path, default=None, help="copier answers file (see tools/detect.py --answers)"
-    )
-    parser.add_argument("--data", action="append", default=None, help="extra answer, key=value (repeatable)")
-    parser.add_argument(
-        "--skip", action="append", default=None, help="path to never write over (default: the detected collisions)"
-    )
-    parser.add_argument("--takeover", action="store_true", help="replace a foreign template's answers file")
-    parser.add_argument("--dry-run", action="store_true", help="plan only; write nothing")
-    parser.add_argument("--yes", action="store_true", help="apply without the confirmation prompt")
-    parser.add_argument("--ask", action="store_true", help="confirm even when stdin is not a terminal")
-    parser.add_argument("--no-merge", action="store_true", help="do not merge anything into the files you already have")
-    parser.add_argument("--recover", action="store_true", help="undo an interrupted adoption from its journal")
-    parser.add_argument("--json", action="store_true", help="print the result as JSON")
-    return parser.parse_args(argv)
-
-
-def _recover_from_cli(args: argparse.Namespace) -> int:
-    """`--recover`: undo an interrupted run and report what was put back.
-
-    Exit codes: 0 whether or not there was a journal (running it twice is a
-    no-op), 2 when the journal is there but cannot be used.
-    """
-    if args.dry_run:
-        print(
-            "--recover undoes the interrupted run, --dry-run promises not to write: pass one of them",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        recovery = recover(args.path.resolve())
-    except (AdoptError, OSError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    print(json.dumps(recovery.as_dict(), indent=2) if args.json else render_recovery(recovery))
-    return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Entry point: plan, apply, and -- on any failed expectation -- roll back.
-
-    `--recover` instead undoes a run that was killed, and succeeds whether or
-    not there was anything left to undo.
-    """
-    args = _parse_args(argv)
-    if not args.path.is_dir():
-        print(f"not a directory: {args.path}", file=sys.stderr)
-        return 2
-    if args.recover:
-        return _recover_from_cli(args)
-    try:
-        adoption = adopt(
-            args.path.resolve(),
-            ref=args.ref,
-            answers={**_load_answers(args.answers), **_parse_data(args.data)},
-            skip=args.skip,
-            takeover=args.takeover,
-            dry_run=args.dry_run,
-            merge_generated=not args.no_merge,
-            ask=_prompter(args),
-        )
-    except StaleJournalError as exc:
-        print(str(exc), file=sys.stderr)
-        return 4
-    except OwnershipError as exc:
-        print(str(exc), file=sys.stderr)
-        return 3
-    except (AdoptError, OSError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-
-    if args.json:
-        print(json.dumps(adoption.as_dict(), indent=2))
-    else:
-        print(render_report(adoption))
-    return 0 if adoption.ok or adoption.error is None else 1
+from tools.adopt_cli import _load_answers  # noqa: E402
+from tools.adopt_cli import _parse_args  # noqa: E402
+from tools.adopt_cli import _parse_data  # noqa: E402
+from tools.adopt_cli import _prompter  # noqa: E402
+from tools.adopt_cli import _recover_from_cli  # noqa: E402
+from tools.adopt_cli import main  # noqa: E402
+from tools.adopt_confirm import _MERGE_QUESTION  # noqa: E402
+from tools.adopt_confirm import TASK_APPEND_KINDS  # noqa: E402
+from tools.adopt_confirm import Confirmation  # noqa: E402
+from tools.adopt_confirm import _ask_about_ci_jobs  # noqa: E402
+from tools.adopt_confirm import _ask_about_task_files  # noqa: E402
+from tools.adopt_confirm import _ask_about_values  # noqa: E402
+from tools.adopt_confirm import _confirm_merges  # noqa: E402
+from tools.adopt_confirm import _finish_with_merges  # noqa: E402
+from tools.adopt_confirm import _plan_only  # noqa: E402
+from tools.adopt_crash import _crash_at  # noqa: E402
+from tools.adopt_crash import _crash_on_write  # noqa: E402
+from tools.adopt_crash import _crash_writes  # noqa: E402
+from tools.adopt_crash import _Interrupted  # noqa: E402
+from tools.adopt_crash import _is_write  # noqa: E402
+from tools.adopt_crash import _signals_roll_back  # noqa: E402
+from tools.adopt_crash import _under  # noqa: E402
+from tools.adopt_files import _dirs_under  # noqa: E402
+from tools.adopt_files import _files_under  # noqa: E402
+from tools.adopt_files import _fsync_dir  # noqa: E402
+from tools.adopt_files import _remove_new_dirs  # noqa: E402
+from tools.adopt_files import _roll_back  # noqa: E402
+from tools.adopt_files import _snapshot  # noqa: E402
+from tools.adopt_files import _verify  # noqa: E402
+from tools.adopt_files import _write_bytes  # noqa: E402
+from tools.adopt_journal import _Journal  # noqa: E402
+from tools.adopt_journal import _read_journal  # noqa: E402
+from tools.adopt_journal import _refuse_stale_journal  # noqa: E402
+from tools.adopt_journal import _remove_journal  # noqa: E402
+from tools.adopt_journal import _restore  # noqa: E402
+from tools.adopt_journal import _undo_run  # noqa: E402
+from tools.adopt_journal import _unlink_created_files  # noqa: E402
+from tools.adopt_journal import _write_journal  # noqa: E402
+from tools.adopt_journal import journal_path  # noqa: E402
+from tools.adopt_journal import recover  # noqa: E402
+from tools.adopt_merge import MERGE_KINDS  # noqa: E402
+from tools.adopt_merge import MERGE_TARGETS  # noqa: E402
+from tools.adopt_merge import _merge_ci_caller  # noqa: E402
+from tools.adopt_merge import _merge_identity  # noqa: E402
+from tools.adopt_merge import _merge_pyproject  # noqa: E402
+from tools.adopt_merge import _merge_text_files  # noqa: E402
+from tools.adopt_merge import _MergeError  # noqa: E402
+from tools.adopt_merge import _note_runner_mismatch  # noqa: E402
+from tools.adopt_merge import _plan_ci_jobs  # noqa: E402
+from tools.adopt_merge import _plan_merges  # noqa: E402
+from tools.adopt_merge import merge_generated_files  # noqa: E402
+from tools.adopt_merge import plan_merges  # noqa: E402
+from tools.adopt_merge import render_fresh_source  # noqa: E402
+from tools.adopt_models import CONFIG_FILES  # noqa: E402
+from tools.adopt_models import CRASH_POINT_ENV  # noqa: E402
+from tools.adopt_models import JOURNAL_NAME  # noqa: E402
+from tools.adopt_models import AdoptError  # noqa: E402
+from tools.adopt_models import Adoption  # noqa: E402
+from tools.adopt_models import OwnershipError  # noqa: E402
+from tools.adopt_models import Recovery  # noqa: E402
+from tools.adopt_models import StaleJournalError  # noqa: E402
+from tools.adopt_models import _Run  # noqa: E402
+from tools.adopt_ref import _plan_data  # noqa: E402
+from tools.adopt_ref import _ref_question_files  # noqa: E402
+from tools.adopt_ref import _ref_questions  # noqa: E402
+from tools.adopt_ref import resolve_ref  # noqa: E402
+from tools.adopt_report import _merge_summary  # noqa: E402
+from tools.adopt_report import _merge_summary_from  # noqa: E402
+from tools.adopt_report import _render_outcome_lines  # noqa: E402
+from tools.adopt_report import merge_problem  # noqa: E402
+from tools.adopt_report import render_recovery  # noqa: E402
+from tools.adopt_report import render_report  # noqa: E402
+from tools.adopt_transaction import _apply_adoption_transaction  # noqa: E402
+from tools.adopt_transaction import _apply_dry_run_plan  # noqa: E402
+from tools.adopt_transaction import _check_adopt_preconditions  # noqa: E402
+from tools.adopt_transaction import _init_adoption  # noqa: E402
+from tools.adopt_transaction import adopt  # noqa: E402
+
+__all__ = [
+    "CONFIG_FILES",
+    "CRASH_POINT_ENV",
+    "JOURNAL_NAME",
+    "MERGE_KINDS",
+    "MERGE_TARGETS",
+    "TASK_APPEND_KINDS",
+    "TOP",
+    "_MERGE_QUESTION",
+    "AdoptError",
+    "Adoption",
+    "Confirmation",
+    "OwnershipError",
+    "Recovery",
+    "StaleJournalError",
+    "_Interrupted",
+    "_Journal",
+    "_MergeError",
+    "_Run",
+    "_apply_adoption_transaction",
+    "_apply_dry_run_plan",
+    "_ask_about_ci_jobs",
+    "_ask_about_task_files",
+    "_ask_about_values",
+    "_check_adopt_preconditions",
+    "_confirm_merges",
+    "_crash_at",
+    "_crash_on_write",
+    "_crash_writes",
+    "_dirs_under",
+    "_files_under",
+    "_finish_with_merges",
+    "_fsync_dir",
+    "_init_adoption",
+    "_is_write",
+    "_load_answers",
+    "_merge_ci_caller",
+    "_merge_identity",
+    "_merge_pyproject",
+    "_merge_summary",
+    "_merge_summary_from",
+    "_merge_text_files",
+    "_note_runner_mismatch",
+    "_parse_args",
+    "_parse_data",
+    "_plan_ci_jobs",
+    "_plan_data",
+    "_plan_merges",
+    "_plan_only",
+    "_prompter",
+    "_read_journal",
+    "_recover_from_cli",
+    "_ref_question_files",
+    "_ref_questions",
+    "_refuse_stale_journal",
+    "_remove_journal",
+    "_remove_new_dirs",
+    "_render_outcome_lines",
+    "_restore",
+    "_roll_back",
+    "_signals_roll_back",
+    "_snapshot",
+    "_under",
+    "_undo_run",
+    "_unlink_created_files",
+    "_verify",
+    "_write_bytes",
+    "_write_journal",
+    "adopt",
+    "journal_path",
+    "main",
+    "merge_generated_files",
+    "merge_problem",
+    "plan_merges",
+    "recover",
+    "render_fresh_source",
+    "render_recovery",
+    "render_report",
+    "resolve_ref",
+]
 
 
 if __name__ == "__main__":

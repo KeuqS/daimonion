@@ -5,10 +5,11 @@ TODO.md §18's unification work (items 2/3/4) was done by hand: an inventory
 classified every condition site, equivalent forms were named as internal
 variables (`oj_bare`, `no_pkg`), and rot-guards were written by hand. This
 module mechanizes that inventory as a permanent facility, built on machinery
-that already exists: the questionnaire parser (tools/questionnaire.py -- the
-one `!include` resolver, whose raw view tools/when_model.py serves), the
+that already exists: the questionnaire shape (tools/questionnaire.py -- the
+one parser, the internal predicates and the static choice values), the
 272-leaf witness space (tools/z3_witnesses.py), the
-leaf-class rows (tools/invariants.py) and the Z3 `when` encoder. Four
+leaf-class rows (tools/invariants.py) and the Z3 `when` encoder
+(tools/when_model.py). Four
 capabilities:
 
 1. **Site collection** (``collect_sites``): every boolean condition on the
@@ -125,11 +126,8 @@ class Site:
 
 
 def _inner(text: Any) -> str:
-    """The expression inside a Jinja tag: `{{ x }}` -> `x`, already plain strings pass through."""
-    inner = str(text).strip()
-    if inner.startswith("{{") and inner.endswith("}}"):
-        inner = inner[2:-2]
-    return inner.strip("+- \t")
+    """The expression inside a Jinja tag (questionnaire.unbrace owns the rule; kept for the report's call sites)."""
+    return questionnaire.unbrace(text)
 
 
 def _refs(text: str) -> frozenset[str]:
@@ -146,8 +144,7 @@ def _questionnaire_records() -> tuple[dict[str, questionnaire.Question], dict[st
 
     The dataclass projection of the one parser (tools/questionnaire.py): the
     records are what carry each question's `source` fragment. The raw-details
-    projection lives in `questionnaire.load_raw_questions` (the view
-    tools/when_model.load_questions delegates to); the two cannot stand in
+    projection lives in `questionnaire.load_raw_questions`; the two cannot stand in
     for each other -- the records normalize `help`/`choices`, the raw view
     discards `source` -- so callers that need both read both, through the
     same parser.
@@ -157,20 +154,8 @@ def _questionnaire_records() -> tuple[dict[str, questionnaire.Question], dict[st
 
 
 def bool_internals(questions: dict[str, dict]) -> dict[str, str]:
-    """The named boolean internals: `when: false` entries whose type is bool, name -> definition.
-
-    The resolved copier.yml (the raw view the questionnaire parser produces,
-    served by when_model.load_questions) is the authority, per the
-    render-reads-effective rule: these are the names render-side conditions
-    are supposed to reference. String-valued internals (`pkg_dir`,
-    `task_runner_effective`, ...) compute placements and names, not
-    predicates, so they are not sites.
-    """
-    return {
-        name: _inner(details.get("default"))
-        for name, details in sorted(questions.items())
-        if details.get("when") is False and details.get("type") == "bool" and details.get("default") is not None
-    }
+    """The named boolean internals (questionnaire owns the predicate; this re-exports it for the report)."""
+    return questionnaire.bool_internals(questions)
 
 
 def _chain_eval(previous: list[str], expr: str) -> str:
@@ -278,9 +263,6 @@ def collect_sites() -> list[Site]:
     ]
     # Two projections, one parser: the records above carry each question's
     # `source` fragment, the raw view below is what `bool_internals` reads.
-    # Both route through tools/questionnaire.py (when_model.load_questions is
-    # its delegate), so there is no second loader to reconcile -- only the
-    # two views the parser deliberately keeps distinct.
     resolved, _order = questionnaire.load_raw_questions()
     internals = bool_internals(resolved)
     sites += [
@@ -443,12 +425,8 @@ class FreeSpace:
     def __init__(self, questions: dict[str, dict]) -> None:
         self.domains = when_model.str_domains(questions)
         self.questions = questions
-        self.bool_defs = bool_internals(questions)
-        self.str_internals = {
-            name
-            for name, details in questions.items()
-            if details.get("when") is False and details.get("type") != "bool"
-        }
+        self.bool_defs = questionnaire.bool_internals(questions)
+        self.str_internals = questionnaire.str_internal_names(questions)
         self._substituted: dict[str, str | None] = {}
         self._identifier_sets: dict[str, frozenset[str]] = {}
         self._verdicts: dict[tuple[str, str], str] = {}
@@ -1058,7 +1036,7 @@ def main(argv: list[str] | None = None) -> int:
     evaluate(sites, leaves)
     tree = _classification_tree(leaves)
     _resolved, _order = questionnaire.load_raw_questions()
-    internals = bool_internals(_resolved)
+    internals = questionnaire.bool_internals(_resolved)
     if args.json:
         print(json.dumps(json_report(sites, leaves, tree, internals), indent=2))
     else:

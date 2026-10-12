@@ -5,10 +5,12 @@ Copier's `when` conditions are Jinja, and the questionnaire's shape is only
 checkable if something can reason about them: which project types can reach a
 question, which gate is asked where, whether a branch is satisfiable at all.
 This module is that reasoner, and it encodes a `when` expression as a Z3
-formula. The layering is fixed: tools/questionnaire.py owns parsing (the one
-`!include` resolver, which also keeps each question's source fragment), and
-this module owns only the `when`-expression semantics layered on the raw view
-it exposes (`load_questions` delegates to `questionnaire.load_raw_questions`).
+formula. The layering is fixed: tools/questionnaire.py owns the
+questionnaire's *shape* (the one `!include` resolver, which also keeps each
+question's source fragment, plus the gate/layer prefixes, the internal
+predicates and the static choice values), and this module owns only the
+`when`-expression semantics layered on the raw view it exposes
+(`load_questions` delegates to `questionnaire.load_raw_questions`).
 Copier's own loader is not consulted here -- it survives as a differential
 oracle in tests, which pin that it agrees with the parser.
 
@@ -126,21 +128,12 @@ def jinja_identifiers(text: str) -> set[str]:
 
 
 def static_str_choices(question: dict) -> list[str]:
-    """Return a question's static (non-templated) choice values, or []."""
-    choices = question.get("choices")
-    if not isinstance(choices, list):
-        return []
-    values: list[str] = []
-    for c in choices:
-        if isinstance(c, dict):
-            value = c.get("value")
-        elif isinstance(c, (list, tuple)) and len(c) == 2:
-            value = c[1]
-        else:
-            value = c
-        if isinstance(value, str):
-            values.append(value)
-    return values
+    """Return a question's static (non-templated) choice values, or [].
+
+    Delegates to tools/questionnaire.py (the one parser owns every reading of
+    a question's shape); kept here so the encoder's callers keep one import.
+    """
+    return questionnaire.static_str_choices(question)
 
 
 def str_domains(questions: dict[str, dict], pt_domain: list[str] | None = None) -> dict[str, list[str]]:

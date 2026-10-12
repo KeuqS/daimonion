@@ -19,8 +19,10 @@ each is rendered. The report therefore stays true as those protection rules
 change -- including for a template revision that predates `adopt_protect`.
 Conditions that name a derived flag (`render_docs`, `tests_scaffold`,
 `pkg_scaffold`, ...) are resolved through that flag's `when: false` default in
-the live questionnaire, so moving a protection clause into `questions/
-_internal.yml` does not hide it from this report either.
+the live questionnaire (tools/questionnaire.py owns that shape; this module
+only caches the live read), so moving a protection clause into `questions/
+_internal.yml` does not hide it from this report either. The question-name
+scan and the `_skip_if_exists` read live there too.
 
 Usage:
     python tools/detect.py                  # inspect the current directory
@@ -55,7 +57,7 @@ if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
 from tools import git  # noqa: E402
-from tools.questionnaire import TolerantLoader  # noqa: E402
+from tools import questionnaire  # noqa: E402
 from tools.render_inputs import read_yaml_mapping  # noqa: E402
 from tools.when_model import load_questions  # noqa: E402
 
@@ -91,10 +93,9 @@ JINJA_TAG = re.compile(r"{%.*?%}", re.DOTALL)
 JINJA_VAR = re.compile(r"{{.*?}}", re.DOTALL)
 PROTECT_CONDITION = re.compile(r"'([a-z_]+)'\s+(?:not\s+)?in\s+adopt_protect")
 GIT_REMOTE = re.compile(r"(?:github\.com|gitlab\.com)[:/]+([^/]+)/(.+?)(?:\.git)?$")
-# A question-name line in copier.yml / questions/*.yml: a top-level key with
-# no value. One definition, shared with tools/adopt.py's ref scan (MULTILINE,
-# so it also finds the names in `git show` output).
-QUESTION_LINE = re.compile(r"^([a-z][a-z0-9_]*):\s*$", re.MULTILINE)
+# A question-name line in copier.yml / questions/*.yml (questionnaire owns
+# the rule; re-exported so the ref scan and the tests keep one import).
+QUESTION_LINE = questionnaire.QUESTION_LINE
 
 
 class DetectError(Exception):
@@ -512,13 +513,10 @@ def _internal_conditions() -> dict[str, str]:
     The protection clauses moved into derived flags (TODO §28.5 R1) live here
     rather than in the path conditions, so resolving a condition reads the same
     source the render will -- no hardcoded flag list to go stale.
+    Questionnaire owns the shape; this caches the live read.
     """
     questions, _order = load_questions()
-    return {
-        name: str(question["default"])
-        for name, question in questions.items()
-        if question.get("when") is False and question.get("default")
-    }
+    return questionnaire.internal_conditions(questions)
 
 
 def _resolve_condition(condition: str, _depth: int = 0) -> str:
@@ -592,37 +590,14 @@ def template_questions(template_dir: Path) -> set[str]:
 
     Derived rather than assumed: `--answers` must not emit an answer the
     questionnaire does not declare, or an adoption silently carries a key
-    that no question consumes.
+    that no question consumes. Questionnaire owns the scan.
     """
-    names: set[str] = set()
-    config_dir = template_dir.parent
-    for path in [config_dir / "copier.yml", *sorted((config_dir / "questions").glob("*.yml"))]:
-        if not path.is_file():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            match = QUESTION_LINE.match(line)
-            if match:
-                names.add(match.group(1))
-    return names
+    return questionnaire.declared_names(template_dir.parent)
 
 
 def skip_if_exists(template_dir: Path) -> set[str]:
     """Read `_skip_if_exists` from the copier.yml that owns `template_dir`."""
-    config_path = template_dir.parent / "copier.yml"
-    try:
-        # noqa: S506  WHYNOT: TolerantLoader subclasses SafeLoader; it only
-        # stops copier's !include tags from raising, and constructs nothing.
-        documents = list(yaml.load_all(config_path.read_text(encoding="utf-8"), Loader=TolerantLoader))  # noqa: S506
-    except (yaml.YAMLError, OSError):
-        return set()
-    # copier.yml is one document per !include, and _skip_if_exists lives in
-    # the last one; merge them all.
-    merged: dict[str, Any] = {}
-    for document in documents:
-        if isinstance(document, dict):
-            merged.update(document)
-    entries = merged.get("_skip_if_exists") or []
-    return {str(entry) for entry in entries if isinstance(entry, str)}
+    return questionnaire.skip_if_exists(template_dir.parent / "copier.yml")
 
 
 def _handle_foreign_detection(target: Path, detection: Detection, notes: list[str], *, takeover: bool) -> bool:
