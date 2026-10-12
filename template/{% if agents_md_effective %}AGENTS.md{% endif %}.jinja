@@ -125,9 +125,10 @@ hygiene, LLM/MCP tool security, model-evaluation fairness), plus the
 rules your `domain_traits`
 answer selected (personal data, biometric identification, medical device
 software), and the EU Cyber Resilience Act's duties where the project is
-sold or packaged as a product. Each section opens with a scope blockquote: if its triggers do
-not apply to the code you are editing, skip that section. Sections are
-written in Japanese.
+sold or packaged as a product. Each section provides an immediate rule summary
+and regex triggers; detailed facts, case citations, and prohibited patterns are
+folded in `<details>` blocks so agents can inspect them on demand without
+cluttering context. Sections are written in Japanese.
 {% if web_api %}
 If this project ships a consumer-facing web frontend, `ethics/regions.yml`
 lists the market-triggered rules no questionnaire answer can route here --
