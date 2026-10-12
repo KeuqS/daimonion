@@ -583,3 +583,23 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
 - open-law: 178 passed / live 層 skip 維持 / `sources` 出力一致 / ruff clean
 - daimonion: test-fast 1153 passed(19.6s/30s)/ ruff+basedpyright clean / regen で witness は
   行順のみ(272 葉・3 excluded 同一)/ gen_docs --check 10 blocks in sync
+
+## §46 完了: 質問・レイヤー・プリセットの自動 scaffold CLI + 検証体系 (2026-10-12)
+
+272 葉の厳密な Z3 命題検証・不変条件体系に対する機能追加の心理的障壁を下げるため、
+`daimonion scaffold` CLI および専用モジュール `tools/scaffold.py` を新設。
+
+### 実装内容
+- **`daimonion scaffold question <name>`**:
+  - `questions/*.yml` に `when:`, `type:`, `default:`, `help:` を備えた推奨構文の質問ブロックを自動生成
+  - `--when` 式の Z3 充足性（SAT）を事前検証し、タイポやデッド質問を警告
+- **`daimonion scaffold layer <name>`**:
+  - `include_<name>` 質問、`invariants.yml` の `include=include_<name>` 行、`template/{% if include_<name> %}...` の雛形を一括案内・生成
+- **`daimonion scaffold preset <name>`**:
+  - `presets/<name>.yml` の雛形生成（base project_type と推奨設定）
+- **`daimonion scaffold check`**:
+  - 全質問 when 式の Z3 SAT、全 12 プリセット、36 行の invariants の健全性を 1 コマンドで検証
+- **テスト・Docs**:
+  - `tests/test_scaffold.py`（7 テスト全緑）
+  - `docs/how-to/scaffold.md` 新設、`how-to.md` および `zensical.toml` の目次に追加
+  - `tests/test_cli.py` に `scaffold` サブコマンドの dispatch テストを追加
