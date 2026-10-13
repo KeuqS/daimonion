@@ -704,6 +704,50 @@ AI エージェントのコンテキストウィンドウ圧迫と過剰反応�
 - **副次効果**: 「秘密情報検知が二重に停止中」だった状態のうち gitleaks 側が復旧。
   残る人間作業は `PYPI_API_TOKEN` のみ（HUMAN_TODO 更新済み）。
 
+## §50 完了: 非機能要件 wave（2026-10-14、8 エージェント並列）
+
+質問票不変（leaf 空間 272 維持）・TODO/nav は親統合の契約で実施。
+test-fast 1170→1194（新規 24 テスト）。issue #28–31 を起票。
+
+### セキュリティ
+- Scorecard 追跡: `docs/explanations/security.md` に週次記録節を追加
+  （Scorecard API 実測値）。セキュリティ感受性 pin（gitleaks binary・
+  actionlint・zizmor 等）の drift 対象漏れを `tools/check_upstream.py`
+  に追加 + `tests/test_security_pins.py` で pin
+- 生成物セキュリティ既定値: 全型横断の棚卸し表
+  （`docs/explanations/security-defaults.md`）+ AGENTS.md に
+  `## Production security defaults` 警告ブロック
+  （`_shared/security-defaults.md.jinja`、ethics-registry 外のため
+  appendix 生成器不変）。`tests/test_security_defaults.py` 12 件。
+  副産物: テンプレートは SECRET_KEY/JWT 等の署名鍵を発行しないことを明記
+
+### 軽量さ
+- 生成物サイズ台帳: `gen_docs.py` に project_type×preset の files/lines/deps
+  計測ブロック（`tests/matrix/sizes.json`、drift 検査対象）+
+  `tests/test_generated_sizes.py`
+- deptry sweep: 真の未使用は `click` の dead ignore 1 件のみ除去。
+  残りは意図的宣言（asyncpg・duckdb 系・ML スタック・cloud SDK・memorious 等）
+  のため残置を記録
+
+### 説明図
+- `docs/explanations/flows.md` 新設: 質問票→生成フロー・adopt/update 状態遷移・
+  ethics/law パイプライン・CI 4 系統概観の mermaid 4 件（全ノード実在物照合）
+
+### 改変容易性
+- scaffold 実動検証: `tools/scaffold.py` の現行質問票との乖離 5 件を修正
+  （when brace 化・qtype yaml・layer 配置先・`_effective` 配線・preset base 検証）
+  + 回帰 5 件。`tools/cli.py` の choices も親が修正
+- S5 M0: `tools/gen_invariants.py` 読影プロトタイプ着地（9 行 MATCH・
+  5 行の EXTRA 差分は sentinel rule 等の M1/M2 input として報告）。
+  統合時に drivers 層登録 + facade 欠落復元 + lint 11 件修正
+- good-first-issue #28–31 起票（witness 数表記・`task tiers` 誤記・S5 M1・S5 M4）
+
+### docs 衛生
+- how-to 15 本修正（SDK pin・オプション追記・MCP ツール表拡充等）。
+  `mcp-tools.md` を how-to index + nav に登録（39/40→40/40）。
+  `copier-upstream.md` 誤削除（担当外ファイルへの編集）を復元。
+  typos 2 件は意図的例示のため残置（docs は typos 対象外）。
+  update-template.md の Jinja 移行 note は正当（2026-09-10 以前の移行者向け）のため残置
 
 ## §49 検討: 次期改善候補（2026-10-13 レビュー）
 
