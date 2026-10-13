@@ -8,7 +8,7 @@ inspected by eye.
 
 ```shell
 task batch                                   # runs batches/smoke.jsonl
-task batch FILE=batches/my-batch.jsonl CLI_ARGS="--only web-api --keep"
+task batch FILE=batches/my-batch.jsonl CLI_ARGS="--only '^library' --keep"
 ```
 
 Exit codes: `0` every line passed, `1` a check failed, `2` the request list
@@ -63,11 +63,11 @@ that phase is present.
 {"id":"script-recommended","answers_file":"batches/base.yml","answers":{"project_type":"script"},"expect":{"files":["smoke_example/__init__.py"],"absent":["src"],"toml":[{"path":"pyproject.toml","key":"project.name","equals":"smoke-example"}]}}
 ```
 
-`batches/smoke.jsonl` is the shipped sample: one line per reachable fast
-path (library / web_api / script / data_science combo / ros2 /
-micropython / kaggle), each asserting the marker files and values that
-prove the right branch rendered, plus one `update` line. Running it needs no
-network and takes a few seconds.
+`batches/smoke.jsonl` is the shipped sample: ten lines covering the fast
+paths (library / web_api / script / data-science combo / ros2 /
+micropython / kaggle / bare / gitlab), including one `update` line
+(`library-update-in-place`). Running it needs no network and takes a few
+seconds.
 
 ## The update phase needs a clean template tree
 
@@ -88,12 +88,13 @@ is fine, but note that its `.copier-answers.yml` records the same
 unreachable synthetic commit, so that particular generated project cannot be
 updated later.
 
-## Options
-
 - `--only REGEX` — run the lines whose `id` matches.
 - `--keep` — keep the work dir (default: a temp dir, deleted on success).
 - `--work DIR` — choose the work dir.
 - `--repo DIR` — resolve `answers_file` relative to DIR instead of this repo.
+- `--prepare` — install each rendered project's environment (implies `--keep`).
+- `--shell` — after the run, open a shell in the last rendered project (implies `--keep`).
+- `--jobs N` — run up to N requests concurrently (default 1: serial, in file order).
 - `--fail-fast` — stop at the first failing line.
 - `--json` — print the verdict as JSON on stdout (copier's own output goes
   to stderr, so the stream stays parseable).

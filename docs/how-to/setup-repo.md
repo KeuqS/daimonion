@@ -26,7 +26,7 @@ To ensure that your dependencies are kept up to date follow [Renovate](./renovat
 
 ## GitHub pages
 
-If you configured the project to have docs then follow [Building docs in CI](./build-docs.md#building-docs-in-ci).
+If you configured the project to have docs then follow [Building docs](./build-docs.md).
 
 ## PyPI uploading
 

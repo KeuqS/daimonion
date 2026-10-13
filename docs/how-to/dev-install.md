@@ -28,9 +28,10 @@ Now you have a development environment you can run the tests in a new terminal:
 task check
 ```
 
-This will run the following checks (as parallel task dependencies):
+`task check` runs `lint`, `type-check`, `test` and `docs` as parallel task
+dependencies — the loop behind them is [Check a Change Without the Full
+Suite](test-loop.md):
 
-- [build-docs](./build-docs.md)
-- [run-tests](./run-tests.md)
-- [static-analysis](./static-analysis.md)
-- [lint](./lint.md)
+- [Build Documentation](./build-docs.md)
+- [Static Analysis](./static-analysis.md)
+- [Linting](./lint.md)

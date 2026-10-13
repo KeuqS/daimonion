@@ -1,18 +1,12 @@
-# Run the tests using pytest
+# Run the tests
 
-Testing is done with [pytest]. It will find functions in the project that [look like tests][look like tests], and run them to check for errors. You can run it with:
+The fast path is the tiered loop in [Check a Change Without the Full
+Suite](test-loop.md): `task test-fast` for the edit loop (no venv, no
+network), `task test-heavy` before pushing dependency/toolchain changes,
+`task test` as the pre-release gate with coverage. The tiers and their
+budgets are the contract — this page is only the one-line entry point.
 
+```sh
+task test-fast   # edit loop
+task test        # everything, with coverage (see [Coverage](coverage.md))
 ```
-$ pytest
-```
-
-When you have some fully working tests then you can run it with coverage:
-
-```
-$ task test
-```
-
-It will also report coverage to the commandline and to `.cache/cov.xml`.
-
-[look like tests]: https://docs.pytest.org/explanation/goodpractices.html#test-discovery
-[pytest]: https://pytest.org/

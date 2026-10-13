@@ -5,9 +5,9 @@ code-submission judges: AtCoder, LeetCode, yukicoder, AOJ, Codeforces, Kattis
 and any other stdin/stdout judge. Answering **online_judge** to
 `project_type` and **Competitive coding** to `oj_category` produces a *bare*
 repository — no package, no `src/` layout, no library — that you drive with
-the judge's own command-line tools. The generated task runner adds four
-recipes (`new` / `dl` / `sample` / `submit`) that wrap those tools, and an
-`AGENTS.md` whose AI wording defers to the contest rules.
+the judge's own command-line tools. The generated task runner (all runners
+except poe) adds four recipes (`new` / `dl` / `sample` / `submit`) that wrap
+those tools, and an `AGENTS.md` whose AI wording defers to the contest rules.
 
 ## Choosing `oj_kind`
 
@@ -38,14 +38,15 @@ story, so the recipes and the README lead with the right CLI:
   of a bare "command not found".
 - **`test/` sample directories and `~/.kattisrc` are git-ignored** — the
   downloaded sample cases and the Kattis submission token stay out of git.
-- **Four task-runner recipes** in every task runner (just / task / make /
-  invoke / duty), named `new`, `dl`, `sample`, `submit`.
+- **Four task-runner recipes** in every task runner except poe
+  (just / task / make / invoke / duty; poe has no OJ recipe support yet),
+  named `new`, `dl`, `sample`, `submit`.
 - An `AGENTS.md` agent guide (always generated since 2026-09-21) whose AI
   wording follows `oj_allow_ai` (see below).
 
 ## The daily loop
 
-One task per step, in every task runner:
+One task per step, in every supported task runner:
 
 | Step | Recipe | What it does |
 |------|--------|--------------|
@@ -55,7 +56,7 @@ One task per step, in every task runner:
 | 4 | `sample <dir>` | Run the judge's sample tests (`oj test -c "python3 main.py"`, `aoj test main.py`) |
 | 5 | `submit <dir>` | Submit `main.py` (`oj submit`, `aoj submit`, `python3 submit.py` on Kattis; a browser note on LeetCode / other) |
 
-Per judge, the recipe table (the same commands in all five runners):
+Per judge, the recipe table (the same commands in the supported runners):
 
 | Judge | `new` | `dl` | `sample` | `submit` |
 |-------|-------|------|----------|----------|
@@ -83,9 +84,9 @@ judge's sample cases, not the unit tests.
 
 `oj_sample` (asked for the code-submission judges, default **No**) adds
 `.github/workflows/oj-sample.yml`: an opt-in workflow that runs the judge
-CLI's *own* sample test against one pinned problem per site. It runs on
-manual dispatch and a weekly schedule (the judges' pages and CLIs move
-without notice), and installs only that site's tool:
+CLI's *own* sample test against one pinned problem per site. It is
+dispatch-only (manual + weekly Sunday schedule — the judges' pages and CLIs
+move without notice), and installs only that site's tool:
 
 - `oj`-based judges (AtCoder / yukicoder / Codeforces / other): `uv pip
   install online-judge-tools`, then `oj download` + `oj test` on the pinned

@@ -107,7 +107,7 @@ template locking you into a storage engine.
   AGPL-3.0. The template hard-forces `license_effective` to AGPL-3.0 when
   the memorious engine is selected — do not change it back to MIT.
 - `task license-check` (`pip-licenses --fail-on`) audits installed
-  dependency licenses in CI and fails on copyleft the project license
+  dependency licenses and fails on copyleft the project license
   cannot absorb. It runs standalone and from `type-check`; like
   `task audit` it needs network (PyPI metadata).
 

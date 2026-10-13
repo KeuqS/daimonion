@@ -7,7 +7,7 @@ Click 'Save as image' and make sure the 'Embed scene' checkbox is enabled. This 
 Add the following to embed it inside your documentation:
 
 ```markdown
-![Excalidraw Diagram](../images/my-diagram.excalidraw.svg)
+![Excalidraw Diagram](../images/excalidraw-example.svg)
 ```
 
 Rebuild the docs (`task docs`) and open the resulting HTML inside a browser.

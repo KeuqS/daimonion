@@ -46,11 +46,13 @@ pixi run rviz2
 ```
 
 See <https://pixi.prefix.dev/latest/robotics/> for the recommended setup.
-In this template, choosing `pixi` generates a `pixi.toml` pinned to the
-distro channel (`robostack-<distro>`), with `colcon` + the ament linters as
-dev dependencies and `[tasks]` for lint/build/test/check. CI uses
-`prefix-dev/setup-pixi` and runs `pixi run colcon build` /
-`pixi run colcon test`.
+In this template, the pixi ROS environment generates a standalone
+`pixi.toml` (RoboStack channel `robostack-<distro>`) with `colcon` + the
+ament linters as dev dependencies and `[tasks]` for lint/build/test/check.
+CI runs `pixi run colcon build` / `pixi run colcon test` (the apt flavour
+uses industrial_ci instead). This is the one place a standalone `pixi.toml`
+is generated — ordinary `package_manager: pixi` projects keep their pixi
+configuration under `[tool.pixi.*]` in `pyproject.toml` (see [Pixi](pixi.md)).
 
 ## What a ros2 project includes
 
@@ -72,4 +74,4 @@ dev dependencies and `[tasks]` for lint/build/test/check. CI uses
 - `.python-version` pinned to the distro's Python (3.10 / 3.12).
 - CI: `industrial_ci` (apt) or `setup-pixi` + colcon (pixi).
 - The `test`/`build`/`check` tasks drive colcon (via justfile for apt, or
-  pixi's `[tasks]` for pixi).
+  pixi's `[tasks]` in `pixi.toml` for the pixi ROS environment).

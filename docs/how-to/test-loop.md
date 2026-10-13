@@ -51,16 +51,14 @@ does. [Verification](../explanations/verification.md) states the three layers
   recorded wall time is older than 30 days. They are not part of the edit loop
   because the
   membership check re-collects every tier in its own pytest session (six
-  startups); `ci.yml` runs them as its own job. They are also part of
-  `task test`, so the pre-release gate still runs them.
 - `task test-randomly` runs the edit-loop selection again with pytest-randomly
-  active (`-p randomly`): the same 889 tests in a freshly shuffled order, so
+  active (`-p randomly`): the same 1176 tests in a freshly shuffled order, so
   order dependence and shared state surface in the nightly run instead of in
   someone's local loop. The plugin is a dev dependency but stays disabled
   everywhere else — `addopts` carries `-p no:randomly`, and this task is the
   only command line that re-enables it — so no other tier pays for the
-  reshuffle (TODO §24.3 / §27.4: conditional adopt, nightly seed job only).
-  Each run's seed is random and printed in the pytest header for reproduction.
+  reshuffle. Each run's seed is random and printed in the pytest header for
+  reproduction.
 - `task test-slow` runs `-m slow`: the serial 272-leaf witness batch runner
   (`tests/test_witness_matrix.py::test_witness_batch_runner_executes_every_leaf`,
   the one test the edit loop cannot afford) and the four `copier update` cases.
@@ -199,10 +197,22 @@ uv run mcp dev tools/mcp_server.py        # MCP Inspector
 | --- | --- |
 | `template_status` | this checkout's state: question count, latest tag, commits behind it, whether the tree is dirty |
 | `list_questions` | the questionnaire in ask order, with defaults, help and choices |
+| `list_presets` | the ready-made answer files under `presets/` with the answer mapping each supplies |
+| `explain_choice` | why a preset pins what it pins / what changes when an answer deviates |
+| `suggest_config` / `validate_answers` | preset candidates for requirement words / whether a proposed answer set is askable and copier-valid |
+| `template_fingerprint` | sha256 of the render inputs: what a render is a function of |
 | `inspect_project` | what a target already has, which mode fits it, and which files would be overwritten |
-| `render_project` | render a set of answers and report the resulting file list |
+| `adopt_project` | adopt the template into a target, transactionally (`dry_run=True` plans only) |
+| `render_project` / `render_diff` / `lint_render` | render a set of answers and report the files / compare two answer sets file by file / render then run ruff under the generated config |
 | `list_batch_requests` | the requests in a batch file |
 | `run_batch` | run a batch and return the verdict |
+| `run_witness` | a witness tier's verdict, one entry per executed test |
+| `run_tests` | the same verdict shape for the suite's own tiers (`fast` / `heavy` / `slow` / `meta` / `all`) |
+| `check_ethics` | which ethics/regional rules the given text trips, with lifecycle and enforcement |
+
+The full tool/resource list (including `template://questionnaire`,
+`template://witnesses`, `template://support`, `template://ethics`) is
+[Use the template's own MCP server](mcp-tools.md).
 
 Read `template_status` first: `latest_tag` is the fork's own newest release —
 what a plain `copier copy` expands since the 6.0.0 detach — and

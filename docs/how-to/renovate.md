@@ -1,9 +1,9 @@
 # Use renovate to keep dependencies up to date
 
 [Renovate](https://github.com/apps/renovate) is a tool for automating dependency updates. It is used to:
-- Automatically update the [uv lock file](./lock-requirements.md) and automerge if tests pass
+- Automatically update the [uv lock file](./lock-requirements.md) (or `pixi.lock` for pixi projects) and automerge if tests pass
 - Update any dependencies in the Dockerfile
-- Update the versions of any GitHub actions not manager by the daimonion
+- Update the versions of any GitHub Actions not managed by the template itself (the ones the template pins stay closed — see `renovate.json`'s `packageRules`)
 
 ## Install the Renovate GitHub app
 

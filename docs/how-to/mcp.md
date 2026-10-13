@@ -18,7 +18,7 @@ transport past local debugging — compose, replicas, auth — is
 
 ## What gets generated
 
-- The `mcp[cli]>=2.0,<3` dependency (the SDK plus its `mcp` command).
+- The `mcp[cli]>=2.0.1,<3` dependency (the SDK plus its `mcp` command).
 - An `mcp_server.py` in your package exposing a module-level `server`
   object (`MCPServer`) with:
   - two **typed tools** — `add(a: int, b: int)` and `divide(...)`. The input

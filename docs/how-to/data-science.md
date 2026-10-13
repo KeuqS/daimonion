@@ -135,8 +135,8 @@ section spells out this split.
 
 ## GPU and the experiment extras
 
-`Dockerfile.gpu` builds on a CUDA base image (the newest
-torch-bearing index, checked weekly by the upstream-drift tool) and the
-`experiment` extra carries the heavier stack (`torch`, `marimo`, …) the
-CPU path does not need. Use it when training on a GPU box; the CPU
-toolchain stays the default everywhere else.
+`Dockerfile.gpu` builds on a CUDA base image and the `experiment` extra
+carries the heavier stack (`torch`, `marimo`, …) the CPU path does not
+need. Use it when training on a GPU box; the CPU toolchain stays the
+default everywhere else. Install it with `uv sync --extra experiment`
+(pixi projects get it as the `[tool.pixi.feature.experiment]` feature).

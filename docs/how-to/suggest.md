@@ -1,9 +1,8 @@
 # Propose a configuration from requirements
 
 `daimonion suggest` turns "what the project needs" into a preset candidate,
-then checks the full answer set before anything is generated — the
-constrained assistant of TODO §42-B1. The model (or you) proposes; the
-questionnaire's own machinery disposes:
+then checks the full answer set before anything is generated. The model (or
+you) proposes; the questionnaire's own machinery disposes:
 
 ```shell
 daimonion suggest "internal API, postgres, github actions"  # preset candidates with reasons

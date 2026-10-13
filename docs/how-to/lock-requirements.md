@@ -28,7 +28,7 @@ To update all dependencies to their latest versions run:
 ```bash
 $ uv sync --upgrade
 ```
-This command will be run by [renovate](./renovate.md) once a week in CI.
+Renovate's `lockFileMaintenance` block (see [Renovate](./renovate.md)) refreshes the lockfile and automerges when tests pass.
 
 See also: [The uv docs on locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync).
 
