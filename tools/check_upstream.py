@@ -291,6 +291,8 @@ def _extract_runner_pins() -> list[Pin]:
     pins.append(
         Pin(name="task version (dependency-audit.yml)", current=task_m.group(1) if task_m else "?", checkable=True)
     )
+    task_m = re.search(r"task-version: v(\d+\.\d+\.\d+)", composite_src)
+    pins.append(Pin(name="task version (setup-runner)", current=task_m.group(1) if task_m else "?", checkable=True))
     return pins
 
 
