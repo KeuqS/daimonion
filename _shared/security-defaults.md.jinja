@@ -1,0 +1,107 @@
+{# Consumers: the AGENTS.md template includes this file once
+   (after "Where to edit", before "Commits and CI"), so every generated
+   project carries the same production checklist. The rows are plain
+   markdown conditioned on the render's own flags -- adding a row means a
+   new gated bullet here plus a row in docs/explanations/security-defaults.md
+   (the inventory table) and a case in tests/test_security_defaults.py.
+   Generation note: this file is literal markdown with jinja conditionals,
+   not one of the ethics-registry sections, so the appendix generator and
+   the ethics-appendix invariant do not see it. #}
+## Production security defaults
+
+These scaffold defaults are safe for local development and must change
+before production. Details: `docs/explanations/security-defaults.md`
+(if the render ships no docs tree, read the same page in the template
+repository).
+
+- Never commit real secrets: `.env`, `.envs/`, `*.pem` stay git-ignored
+  (`.gitignore`), and `.env.example` carries only placeholder/commented
+  values. The hygiene CI rejects committed secrets.
+{% if web_api %}
+- `DATABASE_URL` ships a local-dev credential
+  (`postgres:postgres`, also `POSTGRES_PASSWORD: postgres` in
+  `compose.local.yml` and the CI Postgres service): rotate it in
+  production and inject the real URL from the environment or a secret
+  manager. Alembic's `alembic.ini` carries no URL on purpose — `env.py`
+  reads the same setting, so rotating one place covers migrations too.
+{% if cors_effective %}
+- CORS is deny-by-default (`cors_origins` is empty, so no `CORSMiddleware`
+  is added): set `CORS_ORIGINS` to the exact browser origins you serve,
+  never `*`. `allow_credentials` is on, so a wildcard origin would leak
+  credentialed responses to any site.
+{% endif %}
+- The app binds `0.0.0.0:8000` (settings default, Dockerfile `ENV`, and
+  compose `command`): keep it behind TLS termination and a firewall, and
+  do not publish the port beyond the reverse proxy.
+- `GET /docs` and `GET /openapi.json` are served by default (Swagger UI /
+  schema), and `GET /health` answers without authentication (the Docker
+  `HEALTHCHECK` and compose healthcheck need it): restrict or disable the
+  docs routes in production, and keep `/health` free of sensitive data.
+{% if prometheus_effective %}
+- `GET /metrics` is served without authentication: scrape it on a private
+  interface or protect it — it leaks route-level traffic shape.
+{% endif %}
+{% if rate_limit_effective %}
+- The demo list endpoint allows 5 requests/minute per client IP
+  (`slowapi`, keyed by `get_remote_address`): set limits per real
+  endpoint, and behind a proxy forward the client IP (`X-Forwarded-For`)
+  so the limiter keys on the caller, not the proxy.
+{% else %}
+- No rate limiting is configured on this render: add limits before
+  exposing the API (the recommended stack ships `slowapi` on the list
+  endpoint, 5 requests/minute per client IP).
+{% endif %}
+{% endif %}
+{% if mcp_effective %}
+- The MCP server defaults to stdio (localhost-only). Binding
+  `--host 0.0.0.0` (e.g. inside Docker) requires `MCP_ALLOWED_HOSTS`
+  (`mcp_server.py` refuses to start without it): set it to the exact host
+  allowlist, plus `MCP_ALLOWED_ORIGINS` for the browsers that may call it.
+  `GET /health` on the MCP server is unauthenticated (orchestrator probe).
+{% endif %}
+{% if bot_discord_effective %}
+- `DISCORD_BOT_TOKEN` is required (`bot_discord.py` refuses to start
+  without it): inject it from the environment, never bake it into the
+  image or commit it.
+{% endif %}
+{% if bot_slack_effective %}
+- `SLACK_BOT_TOKEN` (xoxb-) and `SLACK_APP_TOKEN` (xapp-,
+  `connections:write`) are both required (`bot_slack.py` refuses to start
+  without either): inject them from the environment, never bake them into
+  the image or commit them.
+{% endif %}
+{% if bot_line_effective %}
+- `LINE_CHANNEL_SECRET` and `LINE_CHANNEL_ACCESS_TOKEN` are both required
+  (`bot_line.py` refuses to start without either): the secret verifies
+  `X-Line-Signature` on every `POST /callback`, which is what makes the
+  public webhook safe. The webhook listens on all interfaces (`BOT_PORT`,
+  default 8000): expose it over HTTPS only (signature + TLS).
+{% endif %}
+{% if bot_gmail_effective %}
+- `GMAIL_CREDENTIALS_JSON` / `GMAIL_TOKEN_JSON` are required file paths
+  (`bot_gmail.py` refuses to start without either): mount them read-only
+  (e.g. `/run/secrets/`) — the token file IS the inbox. Both stay
+  git-ignored (`/credentials.json`, `/token.json`).
+{% endif %}
+{% if include_sentry %}
+- `SENTRY_DSN` ships unset and `sentry_sdk.init` samples all traces
+  (`traces_sample_rate=1.0`): set the DSN from the environment in
+  production and lower the sample rate (scrub PII before enabling it).
+{% endif %}
+{% if scraping_effective %}
+- `FETCHER_CONTACT` ships as the `contact@example.com` placeholder (the
+  fetcher User-Agent carries it): set a reachable address before any real
+  crawl, and keep the 1 req/s-per-host politeness floor (`CHARTER.md`).
+{% endif %}
+{% if micropython_pkg %}
+- `firmware/boot.py` shows a `wlan.connect("SSID", "password")` placeholder:
+  never commit real Wi-Fi credentials — provision them per device.
+{% endif %}
+{% if oj_code %}
+- Judge credentials stay out of git (`.kattisrc`, downloaded `test/` cases
+  are git-ignored): never commit tokens or harvested cases.
+{% endif %}
+{% if ctf_effective %}
+- CTF targets and flags stay out of git (`challenges/**/vuln`,
+  `challenges/**/flag*` are git-ignored): never commit binaries or flags.
+{% endif %}
