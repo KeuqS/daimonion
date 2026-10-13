@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -733,6 +735,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1742,6 +1771,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2065,6 +2098,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2609,15 +2696,18 @@ breaking the 272-leaf composition contract or the Z3 reachability invariants.</p
 <div class="highlight"><pre><span></span><code><span class="c1"># 1. Check consistency across questionnaire, Z3 model, presets, and invariants</span>
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>check
 
-<span class="c1"># 2. Add or preview a new question block</span>
+<span class="c1"># 2. Add or preview a new question block (--type bool|str|yaml; the `when`</span>
+<span class="c1">#    is stored braced, e.g. "not oj_bare" becomes `when: "{{ not oj_bare }}"`)</span>
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>question<span class="w"> </span>my_feature<span class="w"> </span>--when<span class="w"> </span><span class="s2">"not oj_bare"</span><span class="w"> </span>--help-text<span class="w"> </span><span class="s2">"Enable my feature?"</span><span class="w"> </span>--dry-run
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>question<span class="w"> </span>my_feature<span class="w"> </span>--when<span class="w"> </span><span class="s2">"not oj_bare"</span><span class="w"> </span>--help-text<span class="w"> </span><span class="s2">"Enable my feature?"</span>
 
-<span class="c1"># 3. Scaffold an opt-in layer (include_&lt;layer&gt;)</span>
+<span class="c1"># 3. Scaffold an opt-in layer (include_&lt;layer&gt;): stages the question in</span>
+<span class="c1">#    questions/_combo.yml and prints the invariants.yml + layers.yml rows</span>
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>layer<span class="w"> </span>grpc<span class="w"> </span>--description<span class="w"> </span><span class="s2">"gRPC service layer"</span><span class="w"> </span>--dry-run
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>layer<span class="w"> </span>grpc<span class="w"> </span>--description<span class="w"> </span><span class="s2">"gRPC service layer"</span>
 
-<span class="c1"># 4. Scaffold a new answers preset under presets/</span>
+<span class="c1"># 4. Scaffold a new answers preset under presets/ (--base must be a live</span>
+<span class="c1">#    project_type choice)</span>
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>preset<span class="w"> </span>grpc-service<span class="w"> </span>--base<span class="w"> </span>web_api<span class="w"> </span>--description<span class="w"> </span><span class="s2">"gRPC microservice preset"</span><span class="w"> </span>--dry-run
 daimonion<span class="w"> </span>scaffold<span class="w"> </span>preset<span class="w"> </span>grpc-service<span class="w"> </span>--base<span class="w"> </span>web_api<span class="w"> </span>--description<span class="w"> </span><span class="s2">"gRPC microservice preset"</span>
 </code></pre></div>
@@ -2626,9 +2716,14 @@ daimonion<span class="w"> </span>scaffold<span class="w"> </span>preset<span cla
 <li><strong>Z3 Satisfiability Validation</strong>: If a <code>when</code> condition contains a typo or is
    logically unsatisfiable (never asked), <code>scaffold</code> warns immediately.</li>
 <li><strong>Invariants Synchronization</strong>: Provides exact YAML snippets for
-   <code>tests/matrix/invariants.yml</code> to satisfy witness generation.</li>
-<li><strong>One-Command DoD</strong>: After adding features, run <code>task regen</code> to regenerate
-   witnesses, update test tier records, and synchronize docs.</li>
+   <code>tests/matrix/invariants.yml</code> and <code>tests/matrix/layers.yml</code> to satisfy witness generation.</li>
+<li><strong>Layer Wiring Guidance</strong>: Layers render through a <code>&lt;name&gt;_effective</code>
+   internal in <code>questions/_internal.yml</code> (never a raw <code>include_*</code> file
+   condition); <code>scaffold layer</code> prints that wiring plus the template gate.</li>
+<li><strong>One-Command DoD</strong>: After adding features, run <code>task regen</code> (Taskfile.yml;
+   <code>task witness</code> regenerates witnesses) to regenerate witnesses, update
+   test tier records, and synchronize docs. Then follow the full checklist in
+   <a href="../../explanations/extending/">Extending the Questionnaire</a>.</li>
 </ol>
 
 

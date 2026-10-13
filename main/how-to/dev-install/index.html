@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -813,6 +815,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1764,6 +1793,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2087,6 +2120,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2662,12 +2749,13 @@
 <p>Now you have a development environment you can run the tests in a new terminal:</p>
 <div class="highlight"><pre><span></span><code>task check
 </code></pre></div>
-<p>This will run the following checks (as parallel task dependencies):</p>
+<p><code>task check</code> runs <code>lint</code>, <code>type-check</code>, <code>test</code> and <code>docs</code> as parallel task
+dependencies — the loop behind them is <a href="../test-loop/">Check a Change Without the Full
+Suite</a>:</p>
 <ul>
-<li><a href=".././build-docs/">build-docs</a></li>
-<li><a href=".././run-tests/">run-tests</a></li>
-<li><a href=".././static-analysis/">static-analysis</a></li>
-<li><a href=".././lint/">lint</a></li>
+<li><a href=".././build-docs/">Build Documentation</a></li>
+<li><a href=".././static-analysis/">Static Analysis</a></li>
+<li><a href=".././lint/">Linting</a></li>
 </ul>
 
 

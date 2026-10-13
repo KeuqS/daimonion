@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -733,6 +735,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1742,6 +1771,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2065,6 +2098,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2605,9 +2692,8 @@
 
 <h1 id="propose-a-configuration-from-requirements">Propose a configuration from requirements<a class="headerlink" href="#propose-a-configuration-from-requirements" title="Permanent link">&para;</a></h1>
 <p><code>daimonion suggest</code> turns "what the project needs" into a preset candidate,
-then checks the full answer set before anything is generated — the
-constrained assistant of TODO §42-B1. The model (or you) proposes; the
-questionnaire's own machinery disposes:</p>
+then checks the full answer set before anything is generated. The model (or
+you) proposes; the questionnaire's own machinery disposes:</p>
 <div class="highlight"><pre><span></span><code>daimonion<span class="w"> </span>suggest<span class="w"> </span><span class="s2">"internal API, postgres, github actions"</span><span class="w">  </span><span class="c1"># preset candidates with reasons</span>
 daimonion<span class="w"> </span>suggest<span class="w"> </span>--validate<span class="w"> </span>answers.yml<span class="w">                    </span><span class="c1"># check a drafted answer set (exit 2 when rejected)</span>
 </code></pre></div>

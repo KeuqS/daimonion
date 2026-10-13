@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -733,6 +735,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1792,6 +1821,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2115,6 +2148,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2760,11 +2847,13 @@ pixi<span class="w"> </span>add<span class="w"> </span>ros-&lt;distro&gt;-rclpy
 pixi<span class="w"> </span>run<span class="w"> </span>rviz2
 </code></pre></div>
 <p>See <a href="https://pixi.prefix.dev/latest/robotics/">https://pixi.prefix.dev/latest/robotics/</a> for the recommended setup.
-In this template, choosing <code>pixi</code> generates a <code>pixi.toml</code> pinned to the
-distro channel (<code>robostack-&lt;distro&gt;</code>), with <code>colcon</code> + the ament linters as
-dev dependencies and <code>[tasks]</code> for lint/build/test/check. CI uses
-<code>prefix-dev/setup-pixi</code> and runs <code>pixi run colcon build</code> /
-<code>pixi run colcon test</code>.</p>
+In this template, the pixi ROS environment generates a standalone
+<code>pixi.toml</code> (RoboStack channel <code>robostack-&lt;distro&gt;</code>) with <code>colcon</code> + the
+ament linters as dev dependencies and <code>[tasks]</code> for lint/build/test/check.
+CI runs <code>pixi run colcon build</code> / <code>pixi run colcon test</code> (the apt flavour
+uses industrial_ci instead). This is the one place a standalone <code>pixi.toml</code>
+is generated — ordinary <code>package_manager: pixi</code> projects keep their pixi
+configuration under <code>[tool.pixi.*]</code> in <code>pyproject.toml</code> (see <a href="../pixi/">Pixi</a>).</p>
 <h2 id="what-a-ros2-project-includes">What a ros2 project includes<a class="headerlink" href="#what-a-ros2-project-includes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>package.xml</code> (format 3) with <code>&lt;depend&gt;rclpy&lt;/depend&gt;</code> (Python) or
@@ -2785,7 +2874,7 @@ dev dependencies and <code>[tasks]</code> for lint/build/test/check. CI uses
 <li><code>.python-version</code> pinned to the distro's Python (3.10 / 3.12).</li>
 <li>CI: <code>industrial_ci</code> (apt) or <code>setup-pixi</code> + colcon (pixi).</li>
 <li>The <code>test</code>/<code>build</code>/<code>check</code> tasks drive colcon (via justfile for apt, or
-  pixi's <code>[tasks]</code> for pixi).</li>
+  pixi's <code>[tasks]</code> in <code>pixi.toml</code> for the pixi ROS environment).</li>
 </ul>
 
 

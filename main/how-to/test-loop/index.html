@@ -16,7 +16,7 @@
         <link rel="prev" href="../local-ci/">
       
       
-        <link rel="next" href="../batch/">
+        <link rel="next" href="../mcp-tools/">
       
       
         
@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -853,6 +855,33 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1797,6 +1826,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2120,6 +2153,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2800,17 +2887,15 @@ does. <a href="../../explanations/verification/">Verification</a> states the thr
   <a href="../../explanations/verification/">Verification</a>'s Growth rules), and that no
   recorded wall time is older than 30 days. They are not part of the edit loop
   because the
-  membership check re-collects every tier in its own pytest session (six
-  startups); <code>ci.yml</code> runs them as its own job. They are also part of
-  <code>task test</code>, so the pre-release gate still runs them.</li>
+  membership check re-collects every tier in its own pytest session (six</li>
 <li><code>task test-randomly</code> runs the edit-loop selection again with pytest-randomly
-  active (<code>-p randomly</code>): the same 889 tests in a freshly shuffled order, so
+  active (<code>-p randomly</code>): the same 1176 tests in a freshly shuffled order, so
   order dependence and shared state surface in the nightly run instead of in
   someone's local loop. The plugin is a dev dependency but stays disabled
   everywhere else — <code>addopts</code> carries <code>-p no:randomly</code>, and this task is the
   only command line that re-enables it — so no other tier pays for the
-  reshuffle (TODO §24.3 / §27.4: conditional adopt, nightly seed job only).
-  Each run's seed is random and printed in the pytest header for reproduction.</li>
+  reshuffle. Each run's seed is random and printed in the pytest header for
+  reproduction.</li>
 <li><code>task test-slow</code> runs <code>-m slow</code>: the serial 272-leaf witness batch runner
   (<code>tests/test_witness_matrix.py::test_witness_batch_runner_executes_every_leaf</code>,
   the one test the edit loop cannot afford) and the four <code>copier update</code> cases.
@@ -2969,12 +3054,32 @@ uv<span class="w"> </span>run<span class="w"> </span>mcp<span class="w"> </span>
 <td>the questionnaire in ask order, with defaults, help and choices</td>
 </tr>
 <tr>
+<td><code>list_presets</code></td>
+<td>the ready-made answer files under <code>presets/</code> with the answer mapping each supplies</td>
+</tr>
+<tr>
+<td><code>explain_choice</code></td>
+<td>why a preset pins what it pins / what changes when an answer deviates</td>
+</tr>
+<tr>
+<td><code>suggest_config</code> / <code>validate_answers</code></td>
+<td>preset candidates for requirement words / whether a proposed answer set is askable and copier-valid</td>
+</tr>
+<tr>
+<td><code>template_fingerprint</code></td>
+<td>sha256 of the render inputs: what a render is a function of</td>
+</tr>
+<tr>
 <td><code>inspect_project</code></td>
 <td>what a target already has, which mode fits it, and which files would be overwritten</td>
 </tr>
 <tr>
-<td><code>render_project</code></td>
-<td>render a set of answers and report the resulting file list</td>
+<td><code>adopt_project</code></td>
+<td>adopt the template into a target, transactionally (<code>dry_run=True</code> plans only)</td>
+</tr>
+<tr>
+<td><code>render_project</code> / <code>render_diff</code> / <code>lint_render</code></td>
+<td>render a set of answers and report the files / compare two answer sets file by file / render then run ruff under the generated config</td>
 </tr>
 <tr>
 <td><code>list_batch_requests</code></td>
@@ -2984,8 +3089,23 @@ uv<span class="w"> </span>run<span class="w"> </span>mcp<span class="w"> </span>
 <td><code>run_batch</code></td>
 <td>run a batch and return the verdict</td>
 </tr>
+<tr>
+<td><code>run_witness</code></td>
+<td>a witness tier's verdict, one entry per executed test</td>
+</tr>
+<tr>
+<td><code>run_tests</code></td>
+<td>the same verdict shape for the suite's own tiers (<code>fast</code> / <code>heavy</code> / <code>slow</code> / <code>meta</code> / <code>all</code>)</td>
+</tr>
+<tr>
+<td><code>check_ethics</code></td>
+<td>which ethics/regional rules the given text trips, with lifecycle and enforcement</td>
+</tr>
 </tbody>
 </table>
+<p>The full tool/resource list (including <code>template://questionnaire</code>,
+<code>template://witnesses</code>, <code>template://support</code>, <code>template://ethics</code>) is
+<a href="../mcp-tools/">Use the template's own MCP server</a>.</p>
 <p>Read <code>template_status</code> first: <code>latest_tag</code> is the fork's own newest release —
 what a plain <code>copier copy</code> expands since the 6.0.0 detach — and
 <code>commits_behind_latest_tag</code> says how far the working tree has moved past it.
@@ -3072,13 +3192,13 @@ any <code>Host</code> header.</p>
         
         
           
-          <a href="../batch/" class="md-footer__link md-footer__link--next" aria-label="Next: Run a Batch of Generation Requests">
+          <a href="../mcp-tools/" class="md-footer__link md-footer__link--next" aria-label="Next: Use the Template MCP Server">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Run a Batch of Generation Requests
+                Use the Template MCP Server
               </div>
             </div>
             <div class="md-footer__button md-icon">

@@ -13,7 +13,7 @@
       
       
       
-        <link rel="prev" href="../test-loop/">
+        <link rel="prev" href="../mcp-tools/">
       
       
         <link rel="next" href="../lint/">
@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -749,6 +751,33 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -865,17 +894,6 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         The update phase needs a clean template tree
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#options" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Options
       </span>
     </span>
   </a>
@@ -1803,6 +1821,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2126,6 +2148,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2696,17 +2772,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#options" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Options
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -2732,7 +2797,7 @@ line); the runner renders each one with the real template, judges the
 <code>expect</code> block, and exits nonzero if anything failed. Nothing needs to be
 inspected by eye.</p>
 <div class="highlight"><pre><span></span><code>task<span class="w"> </span>batch<span class="w">                                   </span><span class="c1"># runs batches/smoke.jsonl</span>
-task<span class="w"> </span>batch<span class="w"> </span><span class="nv">FILE</span><span class="o">=</span>batches/my-batch.jsonl<span class="w"> </span><span class="nv">CLI_ARGS</span><span class="o">=</span><span class="s2">"--only web-api --keep"</span>
+task<span class="w"> </span>batch<span class="w"> </span><span class="nv">FILE</span><span class="o">=</span>batches/my-batch.jsonl<span class="w"> </span><span class="nv">CLI_ARGS</span><span class="o">=</span><span class="s2">"--only '^library' --keep"</span>
 </code></pre></div>
 <p>Exit codes: <code>0</code> every line passed, <code>1</code> a check failed, <code>2</code> the request list
 itself is invalid (unknown key, duplicate id, malformed JSON).</p>
@@ -2838,11 +2903,11 @@ that phase is present.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"id"</span><span class="p">:</span><span class="s2">"script-recommended"</span><span class="p">,</span><span class="nt">"answers_file"</span><span class="p">:</span><span class="s2">"batches/base.yml"</span><span class="p">,</span><span class="nt">"answers"</span><span class="p">:{</span><span class="nt">"project_type"</span><span class="p">:</span><span class="s2">"script"</span><span class="p">},</span><span class="nt">"expect"</span><span class="p">:{</span><span class="nt">"files"</span><span class="p">:[</span><span class="s2">"smoke_example/__init__.py"</span><span class="p">],</span><span class="nt">"absent"</span><span class="p">:[</span><span class="s2">"src"</span><span class="p">],</span><span class="nt">"toml"</span><span class="p">:[{</span><span class="nt">"path"</span><span class="p">:</span><span class="s2">"pyproject.toml"</span><span class="p">,</span><span class="nt">"key"</span><span class="p">:</span><span class="s2">"project.name"</span><span class="p">,</span><span class="nt">"equals"</span><span class="p">:</span><span class="s2">"smoke-example"</span><span class="p">}]}}</span>
 </code></pre></div>
-<p><code>batches/smoke.jsonl</code> is the shipped sample: one line per reachable fast
-path (library / web_api / script / data_science combo / ros2 /
-micropython / kaggle), each asserting the marker files and values that
-prove the right branch rendered, plus one <code>update</code> line. Running it needs no
-network and takes a few seconds.</p>
+<p><code>batches/smoke.jsonl</code> is the shipped sample: ten lines covering the fast
+paths (library / web_api / script / data-science combo / ros2 /
+micropython / kaggle / bare / gitlab), including one <code>update</code> line
+(<code>library-update-in-place</code>). Running it needs no network and takes a few
+seconds.</p>
 <h2 id="the-update-phase-needs-a-clean-template-tree">The update phase needs a clean template tree<a class="headerlink" href="#the-update-phase-needs-a-clean-template-tree" title="Permanent link">&para;</a></h2>
 <p><code>copier update</code> re-renders the old version to diff against, so it clones the
 template and checks out the <code>_commit</code> recorded in <code>.copier-answers.yml</code>.
@@ -2857,12 +2922,14 @@ line before generating anything:</p>
 is fine, but note that its <code>.copier-answers.yml</code> records the same
 unreachable synthetic commit, so that particular generated project cannot be
 updated later.</p>
-<h2 id="options">Options<a class="headerlink" href="#options" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>--only REGEX</code> — run the lines whose <code>id</code> matches.</li>
 <li><code>--keep</code> — keep the work dir (default: a temp dir, deleted on success).</li>
 <li><code>--work DIR</code> — choose the work dir.</li>
 <li><code>--repo DIR</code> — resolve <code>answers_file</code> relative to DIR instead of this repo.</li>
+<li><code>--prepare</code> — install each rendered project's environment (implies <code>--keep</code>).</li>
+<li><code>--shell</code> — after the run, open a shell in the last rendered project (implies <code>--keep</code>).</li>
+<li><code>--jobs N</code> — run up to N requests concurrently (default 1: serial, in file order).</li>
 <li><code>--fail-fast</code> — stop at the first failing line.</li>
 <li><code>--json</code> — print the verdict as JSON on stdout (copier's own output goes
   to stderr, so the stream stays parseable).</li>
@@ -2909,7 +2976,7 @@ dedicated CI job rather than the lint/type-check/test loop.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../test-loop/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Check a Change Without the Full Suite">
+          <a href="../mcp-tools/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Use the Template MCP Server">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -2919,7 +2986,7 @@ dedicated CI job rather than the lint/type-check/test loop.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Check a Change Without the Full Suite
+                Use the Template MCP Server
               </div>
             </div>
           </a>

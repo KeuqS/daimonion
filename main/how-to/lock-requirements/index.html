@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -733,6 +735,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1775,6 +1804,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2098,6 +2131,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2687,7 +2774,7 @@
 <p>To update all dependencies to their latest versions run:
 <div class="highlight"><pre><span></span><code>$<span class="w"> </span>uv<span class="w"> </span>sync<span class="w"> </span>--upgrade
 </code></pre></div>
-This command will be run by <a href=".././renovate/">renovate</a> once a week in CI.</p>
+Renovate's <code>lockFileMaintenance</code> block (see <a href=".././renovate/">Renovate</a>) refreshes the lockfile and automerges when tests pass.</p>
 <p>See also: <a href="https://docs.astral.sh/uv/concepts/projects/sync">The uv docs on locking and syncing</a>.</p>
 <h2 id="modifying-the-venv-to-add-other-projects">Modifying the venv to add other projects<a class="headerlink" href="#modifying-the-venv-to-add-other-projects" title="Permanent link">&para;</a></h2>
 <p>Peer projects (those checked out next to the project) are visible in the devcontainer, and can be added into the venv by running <code>uv pip install -e ../other_project</code>. This will allow live changes made in this other project to be immediately reflected in the venv.</p>

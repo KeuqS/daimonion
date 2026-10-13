@@ -16,7 +16,7 @@
         <link rel="prev" href="../long-running/">
       
       
-        <link rel="next" href="../verification/">
+        <link rel="next" href="../security-defaults/">
       
       
         
@@ -516,6 +516,8 @@
       
         
       
+        
+      
     
     
     
@@ -731,6 +733,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1684,6 +1713,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2069,6 +2102,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#scorecard-score-tracked-weekly" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Scorecard score, tracked weekly
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repository-hygiene-files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2094,6 +2138,60 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2608,6 +2706,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#scorecard-score-tracked-weekly" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Scorecard score, tracked weekly
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repository-hygiene-files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2669,7 +2778,7 @@ each Scorecard check to the mechanism that satisfies it.</p>
 <tr>
 <td>Pinned-Dependencies</td>
 <td>High</td>
-<td>renovate's <code>helpers:pinGitHubActionDigests</code> converts every third-party <code>uses:</code> to a 40-char commit SHA (with the version tag as a comment); <code>unpinned-uses</code> is re-enabled in zizmor once the pinning PR lands</td>
+<td>renovate's <code>helpers:pinGitHubActionDigests</code> converts every third-party <code>uses:</code> to a 40-char commit SHA (with the version tag as a comment); <code>unpinned-uses</code> is re-enabled in zizmor once the pinning PR lands. What renovate cannot see — the gitleaks binary, actionlint digest, zizmor cli/action pair and the three <code>uvx</code> tool pins in the hygiene and security workflows — is tracked by the weekly <code>check-upstream.yml</code> drift check (<code>tools/check_upstream.py</code>, <code>tests/test_security_pins.py</code>)</td>
 </tr>
 <tr>
 <td>Dangerous-Workflow</td>
@@ -2695,6 +2804,136 @@ each Scorecard check to the mechanism that satisfies it.</p>
 <td>Binary-Artifacts</td>
 <td>High</td>
 <td><code>.gitignore</code> excludes build outputs; no compiled artifacts are committed</td>
+</tr>
+</tbody>
+</table>
+<h2 id="scorecard-score-tracked-weekly">Scorecard score, tracked weekly<a class="headerlink" href="#scorecard-score-tracked-weekly" title="Permanent link">&para;</a></h2>
+<p>Measured 2026-10-14 via the <a href="https://api.scorecard.dev">public Scorecard API</a>
+(<code>GET /projects/github.com/ConstitutiveTemplates/daimonion</code>, Scorecard
+v5.5.0, commit <code>3185c0e6</code>): <strong>5.2 / 10</strong>. The API refreshes on each call —
+re-measure with <code>curl -s
+https://api.scorecard.dev/projects/github.com/ConstitutiveTemplates/daimonion</code>
+and update the table below, not the prose around it. The weekly
+<code>scorecard.yml</code> run (push to <code>main</code> + Saturdays 01:30 UTC,
+<code>publish_results: true</code>) keeps the published result current; the weekly
+<code>check-upstream.yml</code> run (Mondays 06:00 UTC) keeps the pins behind the
+scores current. Neither workflow records history — the table is the record,
+so append a dated row when the score moves instead of editing old ones.</p>
+<table>
+<thead>
+<tr>
+<th>Scorecard check</th>
+<th>Score</th>
+<th>Dated finding → response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Token-Permissions</td>
+<td>10</td>
+<td>2026-10-14: least-privilege holds. Five <code>contents: write</code> grants remain, each with a stated reason: <code>ci.yml</code> docs/release jobs (gh-pages publish, GitHub Release creation), <code>scheduled-check.yml</code> docs pass-through (a reusable workflow's permissions may not exceed the caller's), <code>_release.yml</code> release job (called workflows receive the intersection), <code>update-rehearsal.yml</code> (report push + results PR). No change needed.</td>
+</tr>
+<tr>
+<td>Pinned-Dependencies</td>
+<td>inconclusive</td>
+<td>2026-10-14: <code>internal error: invalid Dockerfile</code> — the check cannot parse the template's Jinja-gated <code>Dockerfile</code> (<code>{% if docker or cicd_extras %}</code>), not a real unpinned dependency. Every <code>uses:</code> is SHA-pinned (<code>tests/test_workflow_security.py</code>) and renovate's <code>helpers:pinGitHubActionDigests</code> keeps the digests current. No change needed; re-check if Scorecard learns to skip <code>.jinja</code> Dockerfiles.</td>
+</tr>
+<tr>
+<td>Dangerous-Workflow</td>
+<td>10</td>
+<td>2026-10-14: no dangerous patterns. Guarded by zizmor's <code>template-injection</code> audit on every push/PR.</td>
+</tr>
+<tr>
+<td>SAST</td>
+<td>0</td>
+<td>2026-10-14: <code>no SAST tool detected</code> — Scorecard only recognises its own allowlist (CodeQL et al.), not the zizmor workflow audit that actually runs here on every push/PR (<code>security.yml</code>) plus weekly pip-audit (<code>dependency-audit.yml</code>, Thursdays 07:00 UTC). Accepted gap: the mechanism exists, the badge does not.</td>
+</tr>
+<tr>
+<td>Security-Policy</td>
+<td>10</td>
+<td>2026-10-14: policy detected (<code>SECURITY.md</code> with disclosure, vulnerability and timeline text).</td>
+</tr>
+<tr>
+<td>Branch-Protection</td>
+<td>0</td>
+<td>2026-10-14: <code>branch protection not enabled for branch 'main'</code> (verified: <code>GET /repos/{repo}/branches/main/protection</code> → 404 <code>Branch not protected</code>). Not enforceable from the repo — enable in GitHub settings / rulesets (signed commits, required reviews). Human action, still open.</td>
+</tr>
+<tr>
+<td>Binary-Artifacts</td>
+<td>10</td>
+<td>2026-10-14: no binaries committed.</td>
+</tr>
+<tr>
+<td>Signed-Releases</td>
+<td>0</td>
+<td>2026-10-14: release 7.0.0 ships neither signatures nor provenance. Commits are likewise unsigned (<code>git log --show-signature</code> → <code>N</code>, no key configured). Human action, still open: sign tags / attach provenance when cutting the next release.</td>
+</tr>
+<tr>
+<td>Dependency-Update-Tool</td>
+<td>10</td>
+<td>2026-10-14: renovate detected.</td>
+</tr>
+<tr>
+<td>Vulnerabilities</td>
+<td>10</td>
+<td>2026-10-14: 0 known vulnerabilities (OSV feed). Backstop: weekly pip-audit opens a deduplicated issue on findings.</td>
+</tr>
+<tr>
+<td>License</td>
+<td>10</td>
+<td>2026-10-14: license detected (Apache-2.0, REUSE-compliant <code>LICENSES/</code> + <code>REUSE.toml</code>).</td>
+</tr>
+<tr>
+<td>Code-Review</td>
+<td>0</td>
+<td>2026-10-14: <code>0/30 approved changesets</code> — a young-repo artefact (created within the last 90 days), not a process gap; reviews happen but the 30-changeset window is not full yet.</td>
+</tr>
+<tr>
+<td>Maintained</td>
+<td>0</td>
+<td>2026-10-14: same 90-day new-repo notice. Rises with age, not action.</td>
+</tr>
+<tr>
+<td>Contributors</td>
+<td>3</td>
+<td>2026-10-14: 1 contributing organisation. Informational, not a gate.</td>
+</tr>
+<tr>
+<td>CI-Tests</td>
+<td>inconclusive</td>
+<td>2026-10-14: <code>no pull request found</code> — the check needs merged PRs to evaluate; CI runs on every push/PR regardless. Rises with history, not action.</td>
+</tr>
+<tr>
+<td>Packaging</td>
+<td>inconclusive</td>
+<td>2026-10-14: <code>packaging workflow not detected</code> — expected: this is a copier template, not a distributable package (generated projects own the PyPI publish path).</td>
+</tr>
+<tr>
+<td>CII-Best-Practices</td>
+<td>0</td>
+<td>2026-10-14: no badge effort registered. Accepted gap unless a downstream consumer requires it.</td>
+</tr>
+<tr>
+<td>Fuzzing</td>
+<td>0</td>
+<td>2026-10-14: not fuzzed. Accepted gap: a template repo has no long-running parser surface of its own to fuzz.</td>
+</tr>
+</tbody>
+</table>
+<p>Score history:</p>
+<table>
+<thead>
+<tr>
+<th>Date</th>
+<th>Score</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-10-14</td>
+<td>5.2</td>
+<td>First recorded measurement (Scorecard v5.5.0, commit <code>3185c0e6</code>).</td>
 </tr>
 </tbody>
 </table>
@@ -2788,13 +3027,13 @@ both require github.com); they keep the hardened <code>.gitlab-ci.yml</code> ins
         
         
           
-          <a href="../verification/" class="md-footer__link md-footer__link--next" aria-label="Next: Verification Architecture">
+          <a href="../security-defaults/" class="md-footer__link md-footer__link--next" aria-label="Next: Production Security Defaults">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Verification Architecture
+                Production Security Defaults
               </div>
             </div>
             <div class="md-footer__button md-icon">

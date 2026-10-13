@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -733,6 +735,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1753,6 +1782,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2076,6 +2109,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2627,9 +2714,9 @@
 
 <h1 id="use-renovate-to-keep-dependencies-up-to-date">Use renovate to keep dependencies up to date<a class="headerlink" href="#use-renovate-to-keep-dependencies-up-to-date" title="Permanent link">&para;</a></h1>
 <p><a href="https://github.com/apps/renovate">Renovate</a> is a tool for automating dependency updates. It is used to:
-- Automatically update the <a href=".././lock-requirements/">uv lock file</a> and automerge if tests pass
+- Automatically update the <a href=".././lock-requirements/">uv lock file</a> (or <code>pixi.lock</code> for pixi projects) and automerge if tests pass
 - Update any dependencies in the Dockerfile
-- Update the versions of any GitHub actions not manager by the daimonion</p>
+- Update the versions of any GitHub Actions not managed by the template itself (the ones the template pins stay closed — see <code>renovate.json</code>'s <code>packageRules</code>)</p>
 <h2 id="install-the-renovate-github-app">Install the Renovate GitHub app<a class="headerlink" href="#install-the-renovate-github-app" title="Permanent link">&para;</a></h2>
 <p>The renovate app will:
 - Create weekly PRs to update the lockfile to the latest versions, automerging if tests pass

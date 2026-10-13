@@ -516,6 +516,8 @@
       
         
       
+        
+      
     
     
     
@@ -731,6 +733,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1682,6 +1711,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2005,6 +2038,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2465,6 +2552,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#generated-size-toolsgen_docspy-write" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Generated size (<code>tools/gen_docs.py --write</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#dev-experiment-groups" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2612,6 +2710,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Runtime dependencies (<code>[project] dependencies</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generated-size-toolsgen_docspy-write" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Generated size (<code>tools/gen_docs.py --write</code>)
       </span>
     </span>
   </a>
@@ -2774,6 +2883,116 @@ new type):</p>
 </tr>
 </tbody>
 </table>
+<h2 id="generated-size-toolsgen_docspy-write">Generated size (<code>tools/gen_docs.py --write</code>)<a class="headerlink" href="#generated-size-toolsgen_docspy-write" title="Permanent link">&para;</a></h2>
+<p>How big each rendered project is (files, text lines, runtime deps), measured
+from real renders. A template change that grows or shrinks a family must
+re-measure <code>tests/matrix/sizes.json</code> and rewrite this table; <code>--check</code> fails
+in between.</p>
+<!-- BEGIN GENERATED: generated-size (tools/gen_docs.py --write) -->
+<table>
+<thead>
+<tr>
+<th>Row</th>
+<th>Files</th>
+<th>Lines</th>
+<th>Runtime deps</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>preset:bare</code></td>
+<td>35</td>
+<td>2454</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>preset:bot</code></td>
+<td>55</td>
+<td>3337</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>preset:cli</code></td>
+<td>52</td>
+<td>3076</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>preset:data-science</code></td>
+<td>87</td>
+<td>5120</td>
+<td>4</td>
+</tr>
+<tr>
+<td><code>preset:library</code></td>
+<td>52</td>
+<td>2907</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>preset:mcp-server</code></td>
+<td>56</td>
+<td>3479</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>preset:micropython</code></td>
+<td>56</td>
+<td>3228</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>preset:online-judge-atcoder</code></td>
+<td>47</td>
+<td>2840</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>preset:online-judge-codeforces</code></td>
+<td>47</td>
+<td>2834</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>preset:online-judge-kattis</code></td>
+<td>47</td>
+<td>2835</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>preset:ros2</code></td>
+<td>51</td>
+<td>2217</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>preset:web-api</code></td>
+<td>66</td>
+<td>3649</td>
+<td>10</td>
+</tr>
+<tr>
+<td><code>project_type=script</code></td>
+<td>52</td>
+<td>2822</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>row:oj_ctf</code></td>
+<td>52</td>
+<td>2749</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>row:oj_kaggle</code></td>
+<td>68</td>
+<td>3275</td>
+<td>17</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED: generated-size -->
+
 <h2 id="dev-experiment-groups">Dev / experiment groups<a class="headerlink" href="#dev-experiment-groups" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>web_api</code> / <code>include_mcp</code> dev add <code>anyio</code> (in-process client test); the

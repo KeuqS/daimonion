@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -733,6 +735,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1814,6 +1843,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2137,6 +2170,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2855,11 +2942,11 @@ analysis — routers expose results computed by <code>src/</code> code, and heav
 processing never moves into <code>app/</code>. The generated README's data-science
 section spells out this split.</p>
 <h2 id="gpu-and-the-experiment-extras">GPU and the experiment extras<a class="headerlink" href="#gpu-and-the-experiment-extras" title="Permanent link">&para;</a></h2>
-<p><code>Dockerfile.gpu</code> builds on a CUDA base image (the newest
-torch-bearing index, checked weekly by the upstream-drift tool) and the
-<code>experiment</code> extra carries the heavier stack (<code>torch</code>, <code>marimo</code>, …) the
-CPU path does not need. Use it when training on a GPU box; the CPU
-toolchain stays the default everywhere else.</p>
+<p><code>Dockerfile.gpu</code> builds on a CUDA base image and the <code>experiment</code> extra
+carries the heavier stack (<code>torch</code>, <code>marimo</code>, …) the CPU path does not
+need. Use it when training on a GPU box; the CPU toolchain stays the
+default everywhere else. Install it with <code>uv sync --extra experiment</code>
+(pixi projects get it as the <code>[tool.pixi.feature.experiment]</code> feature).</p>
 
 
 

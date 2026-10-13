@@ -27,7 +27,7 @@
     
     
       
-        <title>Run the tests using pytest - daimonion</title>
+        <title>Run the tests - daimonion</title>
       
     
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#run-the-tests-using-pytest" class="md-skip">
+        <a href="#run-the-tests" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Run the tests using pytest
+              Run the tests
             
           </span>
         </div>
@@ -518,6 +518,8 @@
       
         
       
+        
+      
     
     
     
@@ -743,6 +745,33 @@
     
   
   Check a Change Without the Full Suite
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the Template MCP Server
 
     
   </span>
@@ -1694,6 +1723,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2017,6 +2050,60 @@
     
   
   Security & Compliance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/security-defaults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Production Security Defaults
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  System Flows
 
     
   </span>
@@ -2531,14 +2618,15 @@
   
 
 
-<h1 id="run-the-tests-using-pytest">Run the tests using pytest<a class="headerlink" href="#run-the-tests-using-pytest" title="Permanent link">&para;</a></h1>
-<p>Testing is done with <a href="https://pytest.org/">pytest</a>. It will find functions in the project that <a href="https://docs.pytest.org/explanation/goodpractices.html#test-discovery">look like tests</a>, and run them to check for errors. You can run it with:</p>
-<div class="highlight"><pre><span></span><code>$ pytest
+<h1 id="run-the-tests">Run the tests<a class="headerlink" href="#run-the-tests" title="Permanent link">&para;</a></h1>
+<p>The fast path is the tiered loop in <a href="../test-loop/">Check a Change Without the Full
+Suite</a>: <code>task test-fast</code> for the edit loop (no venv, no
+network), <code>task test-heavy</code> before pushing dependency/toolchain changes,
+<code>task test</code> as the pre-release gate with coverage. The tiers and their
+budgets are the contract — this page is only the one-line entry point.</p>
+<div class="highlight"><pre><span></span><code>task<span class="w"> </span>test-fast<span class="w">   </span><span class="c1"># edit loop</span>
+task<span class="w"> </span><span class="nb">test</span><span class="w">        </span><span class="c1"># everything, with coverage (see [Coverage](coverage.md))</span>
 </code></pre></div>
-<p>When you have some fully working tests then you can run it with coverage:</p>
-<div class="highlight"><pre><span></span><code>$ task test
-</code></pre></div>
-<p>It will also report coverage to the commandline and to <code>.cache/cov.xml</code>.</p>
 
 
 
