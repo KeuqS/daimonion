@@ -76,8 +76,8 @@
 
 ### B. アーカイブ側の残り(28 件 + 各着地記録。原文は archive)
 
-- 機能の将来拡張(7): OJ 9 種＋その他(§2, archive L117)[agent可]/ bot LINE・Gmail 残り(§4, L182)[着地済み]/
-  スタンドアロン MCP レシピ・MCP 本番運用(§5, L362–363)[agent可]/ SQLAdmin・FastCRUD(§6, L440)[人間判断]/
+- 機能の将来拡張(7): OJ 9 種＋その他(§2, archive L117)[§2 本体に記録済み(着地)]/ bot LINE・Gmail 残り(§4, L182)[着地済み]/
+  スタンドアロン MCP レシピ(§5, L362)[着地 2026-10-13: `docs/how-to/mcp-distribute.md`]・MCP 本番運用(§5, L363)[人間判断: §49 頭注の web_api Docker 一体設計]/ SQLAdmin・FastCRUD(§6, L440)[人間判断]/
   library 空依存の維持・質問化(§17, L1058)[「維持」決着済み]/ 実行環境への配慮 — Colab / AWS Lambda(§35, このファイル)[人間判断]
 - 公開・運用手順(14)[全て人間作業: repo admin/secrets・外部投稿・組織判断]: v1.0 fork 解除(§11, L544)/ renovate digest・example 再生成・
   Scorecard 確認・branch 保護(§12, L615–621)/ 改名・由来明記・Scorecard 初回・告知・
@@ -86,7 +86,7 @@
   **2026-10-13 確認済み**: run 38342604347 全ジョブ緑(lint/docs/hygiene/test/
   test-meta/Security/Scorecard/example update)。basedpyright が警告のみでも
   exit 1 を返す分岐が判明し、葉分割由来の 151 警告を pragma で沈黙させた)/
-  setup composite 化[着地済み・実走確認のみ人間]・未検証組合せ(§19, L1328–1348)[agent可・実走確認は人間]/ `render_project` 戻り値・
+  setup composite 化[着地済み・実走確認のみ人間]・未検証組合せ(§19, L1328–1348)[一部着地 2026-10-13: weekly `pixi-render-test` + `poetry-render-test` を scheduled-check.yml に追加(poetry は `[tool.poetry] packages` 明示 + `__init__` の importlib.metadata fallback で修正済み)。windows/macos・release 経路・初回実走確認は人間]/ `render_project` 戻り値・
   手書きテスト棚卸し(§23, L1841–1910)[着地済み]
 
 
