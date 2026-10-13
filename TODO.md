@@ -123,7 +123,13 @@ rules as sections first」、レジストリは `_shared/ethics/REGISTRY.yml`。
 - **`sector-samd-regulatory`**: **2026-09-20 着地（active 昇格済み）**。
   domain_traits の `medtech` 選択がゲート（ETHICS_SECTIONS の
   samd-regulatory 行）。ここには記録として残す。
-- **`region-jp-external-transmission` / `region-eu-eaa`**: 保留継続。
+- **`region-jp-external-transmission` / `region-eu-eaa`**: 保留継続
+  （**2026-10-13 再判断**: §49.C で再検討済み。3 件目 `region-eu-cra` は
+  既存回答 `distribution` で active 昇格したため「市場ゲート節の同梱経路」
+  の前提が成立せず、本 2 節は regions.yml 同梱経路で唯一の適用対象
+  （web_api）に葉 +0 で届いている。昇格には `target_markets` 質問＝葉次元増
+  が必要で対価不整合 → 保留継続。再トリガー: regions.yml を共有する 3 件目の
+  市場ゲート節、または市場型質問の独立正当化）。
   - 元案: 展開地域を知る質問（`target_markets`: any-of jp/eu/us…）を新設。
     ただし新質問は葉次元を増やす（witness 再記録が必須）。
   - 2026-09-21 の次候補（質問化しないチャネル）: **各国ルールの参照ファイル
