@@ -73,12 +73,11 @@
 - §49 次期改善候補 → このファイル。2026-10-13 レビュー。法務レイヤー不整合
   (legal-check 未実装・law-lint ルール drift・law-map 孤児 checks)、
   law-lint 強化、§36 S5 / §29 region 昇格の着手条件充足など
-
 ### B. アーカイブ側の残り(28 件 + 各着地記録。原文は archive)
 
 - 機能の将来拡張(7): OJ 9 種＋その他(§2, archive L117)[§2 本体に記録済み(着地)]/ bot LINE・Gmail 残り(§4, L182)[着地済み]/
-  スタンドアロン MCP レシピ(§5, L362)[着地 2026-10-13: `docs/how-to/mcp-distribute.md`]・MCP 本番運用(§5, L363)[人間判断: §49 頭注の web_api Docker 一体設計]/ SQLAdmin・FastCRUD(§6, L440)[人間判断]/
-  library 空依存の維持・質問化(§17, L1058)[「維持」決着済み]/ 実行環境への配慮 — Colab / AWS Lambda(§35, このファイル)[人間判断]
+  スタンドアロン MCP レシピ(§5, L362)[着地 2026-10-13: `docs/how-to/mcp-distribute.md`]・MCP 本番運用(§5, L363)[着地 2026-10-13: `docs/how-to/mcp-production.md`]/ SQLAdmin・FastCRUD(§6, L440)[人間判断]/
+  library 空依存の維持・質問化(§17, L1058)[「維持」決着済み]/ 実行環境への配慮 — Colab / AWS Lambda(§35, このファイル)[判断済み: docs-only 確定]
 - 公開・運用手順(14)[全て人間作業: repo admin/secrets・外部投稿・組織判断]: v1.0 fork 解除(§11, L544)/ renovate digest・example 再生成・
   Scorecard 確認・branch 保護(§12, L615–621)/ 改名・由来明記・Scorecard 初回・告知・
   hypermodern 乗換・Z3 記事・bus-factor(§16, L995–1028)/ fork 作成 F3 着手・手動投稿(§21, L1489–1497)
@@ -486,17 +485,18 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
 
 §37 / `notes/PLAN-widespread-adoption.md` と重複しない指摘のみ。優先順。
 
-- [x] **main CI を緑に戻す** → **緑化確認（2026-10-13、run 38385087549）**:
-  全 required checks green（lint/hygiene/docs/test/test-meta/example update）。
-  過程で発見・修正した 3 件: (a) legal-check 8 テスト分の台帳 drift
-  （tiers.json + test-loop.md 再記録）→ test-meta 赤 → 解消、(b) 自分の
-  コミット文 `docs(todo+how-to)` の scope 記法が conventional 違反
-  （`+` 不可）→ メッセージ分割。(c) gen_docs の tier-ledger 表 drift
-  （verification.md `--write`）。なお旧 HUMAN_TODO の `PYPI_API_TOKEN`
-  のみは引き続き未設定 — ただし `_pypi.yml` は OIDC trusted publishing
-  方式のため、PyPI 側で pending-publisher 登録 + `release` environment
-  作成が済めば token なしで tag push 公開が可能。token が要るのは
-  手動/初回 bootstrap 経路のみで、PyPI アカウントを持つ人間が
+- [x] **main CI を緑に戻す** → **緑化確認（2026-10-13、run 38388728862）**:
+  全 required checks green（lint/hygiene/docs/test/test-meta/example update +
+  Security/Scorecard）。過程で発見・修正した 4 件: (a) legal-check 8 テスト分の
+  台帳 drift（tiers.json + test-loop.md 再記録）→ test-meta 赤 → 解消、
+  (b) 自分のコミット文 `docs(todo+how-to)` の scope 記法が conventional 違反
+  （`+` 不可）→ 履歴書換え。(c) gen_docs の tier-ledger 表 drift
+  （verification.md `--write`)。(d) pixi pin テスト追加分の再記録で
+  新テスト→台帳の自己言及ループを 2 周で収束。なお旧 HUMAN_TODO の
+  `PYPI_API_TOKEN` のみは引き続き未設定 — ただし `_pypi.yml` は OIDC
+  trusted publishing 方式のため、PyPI 側で pending-publisher 登録 +
+  `release` environment 作成が済めば token なしで tag push 公開が可能。
+  token が要るのは手動/初回 bootstrap 経路のみで、PyPI アカウントを持つ人間が
   pypi.org で発行する必要がある
 - [x] **初の外部 PR #9（AK-Lmn）の扱い**: ✅ 2026-10-06 に解決。fork 削除済みで
       merge 不可だったため内容を共著クレジット付きで #23 として再作成し merge、
@@ -705,9 +705,11 @@ AI エージェントのコンテキストウィンドウ圧迫と過剰反応�
 ## §49 検討: 次期改善候補（2026-10-13 レビュー）
 
 既存節・HUMAN_TODO と重複しない、実態確認済みのギャップと、着手条件を満たした
-保留節。優先順。人間判断待ちは §35（deploy_target）・§5（MCP 本番運用、
-web_api Docker 拡充と一体設計）・HUMAN_TODO（PYPI_API_TOKEN、private repo
-分離、upstream F1–F7 投稿、push protection 再有効化）に既載のため割愛。
+保留節。優先順。2026-10-13 時点で §35（deploy_target→docs-only 確定）・
+§5（MCP 本番運用→`docs/how-to/mcp-production.md` 着地）・private repo 分離・
+push protection 再有効化は着地済みのため割愛。本文の残り人間作業は web_api
+Docker 拡充との一体設計の残部・HUMAN_TODO（内部リポ）の PYPI_API_TOKEN と
+upstream F1–F7 投稿のみ。
 
 ### A. 法務レイヤーの不整合（実害優先）
 
