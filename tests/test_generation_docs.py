@@ -7,7 +7,7 @@ from the fork questionnaire (`questions/*.yml`). Before the detach the newest
 tag was an inherited pre-fork one (`5.4.0`, DiamondLightSource template
 content): a default copy silently generated the old template (the real
 "docs_type rejects zensical" and "asks component_owner" bug reports; see
-BUG.md and COPIER_UPSTREAM.md item 9) and demanded `author_name` outright,
+BUG.md and the private kasi-x/daimonion-internal COPIER_UPSTREAM.md item 9) and demanded `author_name` outright,
 which is why the docs used to pin `--vcs-ref=main`.
 
 The render below deliberately passes no `vcs_ref`, so the test fails if the

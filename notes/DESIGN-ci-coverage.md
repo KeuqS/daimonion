@@ -10,7 +10,7 @@
 | 生成 CI Python matrix 3.11–3.14 (ubuntu, uv) | ✅ 実走 | daimonion-example CI: test (3.11/3.12/3.13/3.14) 全緑（run 37204484538） |
 | 生成 `dist` / `container` / `lint` / `docs` / `hygiene` jobs | ✅ 実走 | 同 run で dist/container/docs/lint 緑。hygiene の gitleaks は 2026-10-13 に license-gated action → pin バイナリ直実行へ置換（secret 不要化、green） |
 | テンプレ本体の heavy tier / test-randomly | ✅ 夜間 | ci.yml schedule 03:00 JST 毎日 |
-| `_example.yml` publish | ⚠️ 経路は実走済み・現状赤 | deploy key 無効 org ポリシー（HUMAN_TODO Secrets 項） |
+| `_example.yml` publish | ⚠️ 経路は実走済み・現状赤 | deploy key 無効 org ポリシー（内部 HUMAN_TODO Secrets 項 — kasi-x/daimonion-internal） |
 | `check_upstream` network モード / `generate_license_template` | ✅ | 2026-09-21 ローカル実走記録（§19 本文） |
 | `audit` task | ✅ 週次 | dependency-audit.yml（冒頭コメントに経路明記済み） |
 | `use_recommended_agent` 経路 | ✅ | witness 葉 + test_example_layers（fixture 除外は test_answer_fixtures でピン済み） |
@@ -53,8 +53,8 @@ example は uv。pixi・poetry 選択時の生成物は render のみで CI 実�
 `_release.yml` は tag push でしか走らず、example repo では
 `release: skipped`（main push のため）。タグを打たない限り永遠に未検証。
 
-- v1.0.0 タグ（HUMAN_TODO のリリース作業）がこの検証を兼ねる。
-  **タグ後に release/example ジョブの結果を確認する** を HUMAN_TODO の
+- v1.0.0 タグ（内部 HUMAN_TODO のリリース作業）がこの検証を兼ねる。
+  **タグ後に release/example ジョブの結果を確認する** を内部 HUMAN_TODO の
   v1.0.0 項目に追記済みと同義（追加作業なし、タグ自体が trigger）。
 - `workflow_dispatch` で `_release.yml` を空打ちする選択肢もあるが、
   release workflow は副作用（release 作成）があるため dispatch 検証は

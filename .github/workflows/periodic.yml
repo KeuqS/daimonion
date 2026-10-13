@@ -28,11 +28,13 @@ jobs:
           fail: true
 
   patch-rot:
-    # copier-fork/patches/*.patch are quoted diffs against pinned upstream
-    # copier (baseline v9.18.1): a patch that stops applying is PR rot that
-    # otherwise surfaces only when a human files the upstream PR. Reuses
-    # copier-fork/scripts/verify-patch.sh's `git apply --check` pattern
-    # against a fresh pinned checkout of copier-org/copier.
+    # The F3/F5/F6/F7 copier contributions live as public branches on
+    # kasi-x/copier (PR filing is manual per upstream AI_POLICY; the patch
+    # workbench moved to the private kasi-x/daimonion-internal repo on
+    # 2026-10-13). A branch whose tip diff stops applying to the pinned
+    # upstream baseline is PR rot that otherwise surfaces only when a human
+    # files the PR, so re-verify each branch's diff against a fresh pinned
+    # checkout of copier-org/copier.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -47,18 +49,25 @@ jobs:
           ref: v9.18.1
           path: upstream-copier
           persist-credentials: false
-      - name: Check every patch still applies
+      - name: Fetch contribution branches from the public fork
+        run: |
+          set -euo pipefail
+          git -C upstream-copier remote add fork https://github.com/kasi-x/copier.git
+          git -C upstream-copier fetch --quiet fork f3-missing-batch f5-stale-tag-warning f6-trust-discoverability f7-pretend-summary
+      - name: Check every contribution branch still applies
         run: |
           set -euo pipefail
           failed=0
-          for patch in copier-fork/patches/*.patch; do
-            if [ -e "$patch" ]; then
-              if git -C upstream-copier apply --check --verbose "../$patch"; then
-                echo "OK: $patch"
-              else
-                echo "ROT: $patch no longer applies against v9.18.1" >&2
-                failed=1
-              fi
+          for branch in f3-missing-batch f5-stale-tag-warning f6-trust-discoverability f7-pretend-summary; do
+            git -C upstream-copier diff HEAD "fork/$branch" > "/tmp/$branch.patch" || true
+            if [ ! -s "/tmp/$branch.patch" ]; then
+              echo "ROT: $branch has no diff against v9.18.1" >&2
+              failed=1
+            elif git -C upstream-copier apply --check --verbose "/tmp/$branch.patch"; then
+              echo "OK: $branch"
+            else
+              echo "ROT: $branch no longer applies against v9.18.1" >&2
+              failed=1
             fi
           done
           exit "$failed"

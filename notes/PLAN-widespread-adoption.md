@@ -1,7 +1,7 @@
 # PLAN: このOSSが広く普及・愛用されるための拡大戦略と実践ロードマップ
 
 対象リポジトリ: `ConstitutiveTemplates/daimonion`（2026-10-04 策定。旧 `kasi-x/python-copier-template`）
-関連ドキュメント: `TODO.md` (§36, §37)、`notes/Strategy.md`、`notes/SPEC-adoption.md`、`docs/explanations/vision.md`、`HUMAN_TODO.md`（人間作業のチェックリスト）
+関連ドキュメント: `TODO.md` (§36, §37)、`notes/Strategy.md`、`notes/SPEC-adoption.md`、`docs/explanations/vision.md`、内部 `HUMAN_TODO.md`（人間作業のチェックリスト — 2026-10-13 に kasi-x/daimonion-internal へ移設）
 
 ---
 

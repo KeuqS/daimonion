@@ -488,9 +488,13 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
       online_judge / bot / ctf / ethics …）単位に分け `docs/reference/support.md`
       のティアと連動。**オーナー不在のレイヤーは `experimental` に降格**する
       規則と、triager → レイヤーオーナー → コアメンテナの昇格パスを GOVERNANCE に明記
-- [ ] **内部メモを公開リポから分離**(移設先の private リポ/Wiki 作成が人間作業): `notes/outreach/`（推薦文・元作者スレッドへの
-      返信草案は、読まれる相手が見られる場所にあると逆効果）、`copier-fork/`、
-      `HUMAN_TODO.md` を private リポか Wiki へ
+- [x] **内部メモを公開リポから分離** → **着地（2026-10-13）**: private リポ
+      `kasi-x/daimonion-internal` を新設し、`notes/outreach/`・`copier-fork/`・
+      `notes/upstream-drafts/`・`notes/COPIER_UPSTREAM.md`・`HUMAN_TODO.md` を
+      移設（ポインタは `notes/INTERNAL.md`）。`periodic.yml` の `patch-rot`
+      job はローカル patch ファイルではなく公開 fork `kasi-x/copier` の
+      4 ブランチ diff を pin タグ v9.18.1 へ適用検査する方式に切替
+      （4/4 が現在も apply 可をローカル検証済み）
 - [x] **変更速度を追える速さに**（PR 経由の習慣は 2026-10-05 から実施中 — 本日の変更は
       すべて PR #9-17 として経由）: 残る人間判断は定期リリースの周期（例: 月 1）と
       リリース前の凍結期間の設定

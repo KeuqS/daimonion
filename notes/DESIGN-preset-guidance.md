@@ -1,4 +1,4 @@
-# DESIGN: 質問票のプリセット案内（PLAN-widespread-adoption P2 / HUMAN_TODO Phase 1 補遺）
+# DESIGN: 質問票のプリセット案内（PLAN-widespread-adoption P2 / 内部 HUMAN_TODO Phase 1 補遺）
 
 2026-10-04。対話レンダ利用者に「推奨プリセットから選ぶ」導線を質問票内に
 追加するかの判断材料。採否は人間判断（この文書は選択肢と影響範囲の整理）。

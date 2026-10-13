@@ -8,7 +8,7 @@ header agreement, draft isolation, gate safety/boundness, generated-appendix
 freshness, and the regions/copyright tables' bindings. Prose-shape QA (the
 body naming its scale/audience tokens, denylist prose checks) moves to the
 codex repo's content suite when the split lands -- see
-notes/upstream-drafts/11-codex-content-qa-suite.md.
+kasi-x/daimonion-internal notes/upstream-drafts/11-codex-content-qa-suite.md.
 """
 
 import ast
