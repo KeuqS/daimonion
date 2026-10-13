@@ -79,7 +79,10 @@
 - 公開・運用手順(14): v1.0 fork 解除(§11, L544)/ renovate digest・example 再生成・
   Scorecard 確認・branch 保護(§12, L615–621)/ 改名・由来明記・Scorecard 初回・告知・
   hypermodern 乗換・Z3 記事・bus-factor(§16, L995–1028)/ fork 作成 F3 着手・手動投稿(§21, L1489–1497)
-- CI・検証の残り(8): CI 緑確認・教訓(ネスト)・バッジ乖離・Periodic(§15, L800–815。日付が古い。要確認)/
+- CI・検証の残り(8): CI 緑確認・教訓(ネスト)・バッジ乖離・Periodic(§15, L800–815。
+  **2026-10-13 確認済み**: run 38342604347 全ジョブ緑(lint/docs/hygiene/test/
+  test-meta/Security/Scorecard/example update)。basedpyright が警告のみでも
+  exit 1 を返す分岐が判明し、葉分割由来の 151 警告を pragma で沈黙させた)/
   setup composite 化・未検証組合せ(§19, L1328–1348)/ `render_project` 戻り値・
   手書きテスト棚卸し(§23, L1841–1910)
 
