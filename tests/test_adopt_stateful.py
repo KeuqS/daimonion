@@ -60,7 +60,10 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools import adopt  # noqa: E402
+from tools import adopt_crash  # noqa: E402
+from tools import adopt_journal  # noqa: E402
+from tools import adopt_run  # noqa: E402
+from tools import adopt_types  # noqa: E402
 from tools import detect  # noqa: E402
 from tools import file_merge  # noqa: E402
 
@@ -224,7 +227,7 @@ def files_under(root: Path) -> dict[str, bytes]:
     return {
         str(path.relative_to(root)): path.read_bytes()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and path.name != adopt.JOURNAL_NAME
+        if path.is_file() and path.name != adopt_types.JOURNAL_NAME
     }
 
 
@@ -335,7 +338,7 @@ class AdoptionMachine(RuleBasedStateMachine):
     @invariant()
     def the_tree_is_what_the_model_says(self) -> None:
         observed = files_under(self.target)
-        journal_present = (self.target / adopt.JOURNAL_NAME).is_file()
+        journal_present = (self.target / adopt_types.JOURNAL_NAME).is_file()
         assert journal_present == self.pending_journal, (
             f"the journal is {'there' if journal_present else 'gone'}, "
             f"but the model says a run {'is' if self.pending_journal else 'is not'} unfinished"
@@ -426,7 +429,7 @@ class AdoptionMachine(RuleBasedStateMachine):
     @rule()
     def adopt_and_merge(self) -> None:
         """The everyday run: render, then merge what the adopter already has."""
-        result = adopt.adopt(self.target, ref="HEAD")
+        result = adopt_run.adopt(self.target, ref="HEAD")
         assert result.ok and result.applied, f"a clean adoption failed: {result.error}"
         self.expect_settled(new=self.expected_new(merge=True), merged=True)
 
@@ -434,7 +437,7 @@ class AdoptionMachine(RuleBasedStateMachine):
     @rule()
     def adopt_without_merging(self) -> None:
         """`--no-merge`: the render happens, nothing the adopter owns is edited."""
-        result = adopt.adopt(self.target, ref="HEAD", merge_generated=False)
+        result = adopt_run.adopt(self.target, ref="HEAD", merge_generated=False)
         assert result.ok and result.applied, f"a render-only adoption failed: {result.error}"
         self.expect_settled(new=self.expected_new(merge=False))
 
@@ -442,7 +445,7 @@ class AdoptionMachine(RuleBasedStateMachine):
     @rule()
     def adopt_as_a_dry_run(self) -> None:
         """`--dry-run` writes nothing, however much it would have added."""
-        result = adopt.adopt(self.target, ref="HEAD", dry_run=True)
+        result = adopt_run.adopt(self.target, ref="HEAD", dry_run=True)
         assert result.ok and not result.applied, "a dry run applied something"
         self.expect_settled(new=set())
 
@@ -462,7 +465,7 @@ class AdoptionMachine(RuleBasedStateMachine):
             asked.append(question)
             return answer
 
-        result = adopt.adopt(self.target, ref="HEAD", ask=ask)
+        result = adopt_run.adopt(self.target, ref="HEAD", ask=ask)
         if not asked:
             assert result.ok and result.applied, f"an unconfirmed adoption failed: {result.error}"
             self.expect_settled(new=self.expected_new(merge=True), merged=True)
@@ -482,10 +485,10 @@ class AdoptionMachine(RuleBasedStateMachine):
         left to write there, which is an ordinary run.
         """
         with self.monkeypatch.context() as patch:
-            patch.setattr(adopt, "_crash_at", self._die_at(point))
-            patch.setenv(adopt.CRASH_POINT_ENV, point)
+            patch.setattr(adopt_crash, "_crash_at", self._die_at(point))
+            patch.setenv(adopt_types.CRASH_POINT_ENV, point)
             try:
-                result = adopt.adopt(self.target, ref="HEAD")
+                result = adopt_run.adopt(self.target, ref="HEAD")
             except KeyboardInterrupt:
                 self.expect_interrupted(merged=point.startswith("merge"))
             else:
@@ -501,7 +504,7 @@ class AdoptionMachine(RuleBasedStateMachine):
         tests/test_adopt.py; this one stays in-process because 100 sequences
         cannot afford a process.
         """
-        real_crash_at = adopt._crash_at  # noqa: SLF001
+        real_crash_at = adopt_crash._crash_at  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
         def crash_at(hit: str) -> None:
             if hit == point:
@@ -524,9 +527,9 @@ class AdoptionMachine(RuleBasedStateMachine):
         in it to kill.
         """
         with self.monkeypatch.context() as patch:
-            patch.setattr(adopt, "_crash_at", self._die_at("rollback"))
+            patch.setattr(adopt_crash, "_crash_at", self._die_at("rollback"))
             try:
-                result = adopt.adopt(self.target, ref="HEAD", skip=[])
+                result = adopt_run.adopt(self.target, ref="HEAD", skip=[])
             except KeyboardInterrupt:
                 self.expect_interrupted(merged=False)
             else:
@@ -550,9 +553,9 @@ class AdoptionMachine(RuleBasedStateMachine):
         the crash point, which is the no-op recovery -- also success.
         """
         with self.monkeypatch.context() as patch:
-            patch.setattr(adopt, "_crash_at", self._die_at("recover"))
+            patch.setattr(adopt_crash, "_crash_at", self._die_at("recover"))
             try:
-                adopt.recover(self.target)
+                adopt_journal.recover(self.target)
             except KeyboardInterrupt:
                 self.expect_interrupted(merged=True)
             else:
@@ -563,7 +566,7 @@ class AdoptionMachine(RuleBasedStateMachine):
     @rule()
     def recover(self) -> None:
         """Whatever a killed run left, recovery puts the tree back -- twice is a no-op."""
-        recovery = adopt.recover(self.target)
+        recovery = adopt_journal.recover(self.target)
         assert recovery.found == self.pending_journal, "recovery disagrees with the model about the journal"
         self.expect_settled(new=set())
 
@@ -571,16 +574,16 @@ class AdoptionMachine(RuleBasedStateMachine):
     @rule()
     def adopt_over_a_stale_journal(self) -> None:
         """A tree nobody chose is not a tree to plan from: refuse, write nothing."""
-        with pytest.raises(adopt.StaleJournalError):
-            adopt.adopt(self.target, ref="HEAD")
+        with pytest.raises(adopt_types.StaleJournalError):
+            adopt_run.adopt(self.target, ref="HEAD")
         self.expect_interrupted(merged=False)
 
     @precondition(lambda self: self.adopted and not self.pending_journal)
     @rule()
     def adopt_an_adopted_project(self) -> None:
         """A project the template already owns is not adopted a second time."""
-        with pytest.raises(adopt.AdoptError):
-            adopt.adopt(self.target, ref="HEAD")
+        with pytest.raises(adopt_types.AdoptError):
+            adopt_run.adopt(self.target, ref="HEAD")
         self.expect_settled(new=set())
 
     # -- the model ------------------------------------------------------------
@@ -661,7 +664,7 @@ def test_adoption_matches_the_model(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     template = build_template(mini)
     trees = tmp_path / "trees"
     trees.mkdir()
-    monkeypatch.setattr(adopt, "TOP", mini)
+    monkeypatch.setattr(adopt_types, "TOP", mini)
     monkeypatch.setattr(detect, "TEMPLATE_DIR", template)
 
     def machine() -> AdoptionMachine:

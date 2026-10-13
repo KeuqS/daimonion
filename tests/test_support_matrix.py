@@ -77,7 +77,7 @@ def test_every_support_entry_has_a_why():
 def test_support_doc_is_exactly_the_generator_output():
     """`docs/reference/support.md` is the generated file, prose included."""
     assert support_ledger.SUPPORT_DOC.read_text(encoding="utf-8") == gen_docs.support_doc_text()
-    target = next(block for block in gen_docs.targets() if block.path == support_ledger.SUPPORT_DOC)
+    target = next(block for block in gen_docs.generated_blocks() if block.path == support_ledger.SUPPORT_DOC)
     assert gen_docs.check(gen_docs.Model.load(), [target]) == []
 
 

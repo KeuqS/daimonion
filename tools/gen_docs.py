@@ -44,18 +44,11 @@ Usage:
     python tools/gen_docs.py --write   # update the generated blocks
 """
 
-# This module is the public facade; tests, tools and scripts reach the
-# machinery through it (`gen_docs.Model`, `gen_docs.render_areas`, ...). Only
-# what the CLI below needs is imported statically; every other name the old
-# monolith exposed resolves through `__getattr__`/`__dir__`, so the surface
-# stays identical without re-importing each sibling's privates (which
-# basedpyright would flag as private usage from outside their module).
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
 
 TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
@@ -63,10 +56,10 @@ if str(TOP) not in sys.path:
 
 from tools.gen_docs_blocks import BEGIN  # noqa: E402
 from tools.gen_docs_blocks import END  # noqa: E402
-from tools.gen_docs_blocks import Target  # noqa: E402
+from tools.gen_docs_blocks import GeneratedBlock  # noqa: E402
 from tools.gen_docs_blocks import check  # noqa: E402
+from tools.gen_docs_blocks import generated_blocks  # noqa: E402
 from tools.gen_docs_blocks import support_doc_text  # noqa: E402
-from tools.gen_docs_blocks import targets  # noqa: E402
 from tools.gen_docs_blocks import write  # noqa: E402
 from tools.gen_docs_graph import render_mermaid  # noqa: E402
 from tools.gen_docs_model import ALL_TYPES  # noqa: E402
@@ -85,7 +78,7 @@ from tools.gen_docs_model import GenDocsError  # noqa: E402
 from tools.gen_docs_model import Model  # noqa: E402
 from tools.gen_docs_prose import asked_for_values  # noqa: E402
 from tools.gen_docs_prose import choice_help  # noqa: E402
-from tools.gen_docs_prose import condition  # noqa: E402
+from tools.gen_docs_prose import condition_prose  # noqa: E402
 from tools.gen_docs_prose import declined  # noqa: E402
 from tools.gen_docs_prose import default_prose  # noqa: E402
 from tools.gen_docs_prose import first_sentence  # noqa: E402
@@ -120,17 +113,18 @@ __all__ = [
     "TOP",
     "VERIFICATION_DOC",
     "GenDocsError",
+    "GeneratedBlock",
     "Model",
     "Question",
-    "Target",
     "_parse_args",
     "asked_for_values",
     "check",
     "choice_help",
-    "condition",
+    "condition_prose",
     "declined",
     "default_prose",
     "first_sentence",
+    "generated_blocks",
     "help_paragraph",
     "main",
     "prompt_line",
@@ -146,47 +140,8 @@ __all__ = [
     "render_support_table",
     "render_tier_ledger",
     "support_doc_text",
-    "targets",
     "write",
 ]
-
-_COMPAT_MODULES = (
-    "gen_docs_model",
-    "gen_docs_prose",
-    "gen_docs_sections",
-    "gen_docs_graph",
-    "gen_docs_blocks",
-)
-"""The siblings whose names this facade re-exposes (old monolith surface)."""
-
-_DIR_HIDE = frozenset({"_COMPAT_MODULES", "_compat_names", "_DIR_HIDE"})
-
-
-def __dir__() -> list[str]:
-    """Advertise the old monolith's surface (so `dir(gen_docs)` is unchanged)."""
-    return sorted((set(globals()) | _compat_names()) - _DIR_HIDE)
-
-
-def _compat_names() -> set[str]:
-    """Every public-or-private name the siblings offer (cached per process)."""
-    import importlib  # noqa: PLC0415
-
-    names: set[str] = set()
-    for sibling in _COMPAT_MODULES:
-        names.update(name for name in dir(importlib.import_module(f"tools.{sibling}")) if not name.startswith("__"))
-    return names
-
-
-def __getattr__(name: str) -> Any:
-    """Resolve a name the old monolith exposed from the sibling that owns it."""
-    import importlib  # noqa: PLC0415
-
-    for sibling in _COMPAT_MODULES:
-        module = importlib.import_module(f"tools.{sibling}")
-        if hasattr(module, name):
-            return getattr(module, name)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -201,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     """Entry point: check or rewrite the generated blocks."""
     args = _parse_args(argv)
     model = Model.load()
-    blocks = targets()
+    blocks = generated_blocks()
     if args.write:
         changed = write(model, blocks)
         if not changed:

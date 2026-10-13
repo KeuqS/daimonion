@@ -61,7 +61,11 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools import adopt  # noqa: E402
+from tools import adopt_merge  # noqa: E402
+from tools import adopt_report  # noqa: E402
+from tools import adopt_revision  # noqa: E402
+from tools import adopt_run  # noqa: E402
+from tools import adopt_types  # noqa: E402
 from tools import answers  # noqa: E402
 from tools import batch  # noqa: E402
 from tools import detect  # noqa: E402
@@ -162,7 +166,7 @@ def _fresh_dry_run(target: Path, data: dict[str, Any], resolved: str, reason: st
     print(f"ref:     {resolved}  ({reason})")
     print(f"target:  {target}")
     print("answers: " + ", ".join(f"{key}={value}" for key, value in sorted(data.items())))
-    source = adopt.render_fresh_source(data, resolved)
+    source = adopt_merge.render_fresh_source(data, resolved)
     try:
         planned = sorted(str(path.relative_to(source)) for path in source.rglob("*") if path.is_file())
     finally:
@@ -182,7 +186,7 @@ def _fresh(  # noqa: PLR0913  WHYNOT: a thin shell over copier's flags; preset_a
     preset_answers: dict[str, Any] | None = None,
 ) -> int:
     """Render this checkout into an empty (or not yet created) directory."""
-    resolved, reason = adopt.resolve_ref(ref)
+    resolved, reason = adopt_revision.resolve_ref(ref)
     if dry_run:
         return _fresh_dry_run(target, data, resolved, reason)
     try:
@@ -208,14 +212,14 @@ def _fresh(  # noqa: PLR0913  WHYNOT: a thin shell over copier's flags; preset_a
 def _adopt(target: Path, answers: dict[str, Any], ref: str | None, *, dry_run: bool) -> int:
     """Adopt into an existing project through `tools/adopt.py`'s transaction."""
     try:
-        adoption = adopt.adopt(target, ref=ref, answers=answers, dry_run=dry_run, merge_generated=False)
-    except adopt.OwnershipError as exc:
+        adoption = adopt_run.adopt(target, ref=ref, answers=answers, dry_run=dry_run, merge_generated=False)
+    except adopt_types.OwnershipError as exc:
         print(str(exc), file=sys.stderr)
         return REFUSED
-    except (adopt.AdoptError, OSError) as exc:
+    except (adopt_types.AdoptError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return INVALID
-    print(adopt.render_report(adoption))
+    print(adopt_report.render_report(adoption))
     return OK if adoption.ok or adoption.error is None else FAILED
 
 

@@ -32,7 +32,7 @@ from tools.gen_docs_model import TIERS_JSON  # noqa: E402
 from tools.gen_docs_model import Model  # noqa: E402
 from tools.gen_docs_prose import _wrap  # noqa: E402
 from tools.gen_docs_prose import choice_help  # noqa: E402
-from tools.gen_docs_prose import condition  # noqa: E402
+from tools.gen_docs_prose import condition_prose  # noqa: E402
 from tools.gen_docs_prose import declined  # noqa: E402
 from tools.gen_docs_prose import default_prose  # noqa: E402
 from tools.gen_docs_prose import prompt_line  # noqa: E402
@@ -60,7 +60,7 @@ def _area_table(model: Model) -> list[str]:
     """The area-gate table: gate, its recommended default, and when it is asked."""
     lines = ["| Area gate | Recommended default | Asked when |", "|---|---|---|"]
     lines += [
-        f"| `{gate.name}` | {support_ledger.cell(recommended(gate))} | {support_ledger.cell(condition(gate))} |"
+        f"| `{gate.name}` | {support_ledger.cell(recommended(gate))} | {support_ledger.cell(condition_prose(gate))} |"
         for gate in model.area_gates
     ]
     return lines
@@ -80,14 +80,14 @@ def render_areas(model: Model) -> str:
         lines += ["", "An opt-in layer adds its area to a combinable base:", ""]
         for layer in model.includes:
             text = (
-                f"**`{layer.name}`** (asked when {condition(layer)}; default {default_prose(layer)})"
+                f"**`{layer.name}`** (asked when {condition_prose(layer)}; default {default_prose(layer)})"
                 f" — {prompt_line(layer)}"
             )
             lines += _wrap(text, prefix="- ")
     if model.option_gates:
         lines += ["", "An opt-in layer asks its own gate on top:", ""]
         for gate in model.option_gates:
-            text = f"**`{gate.name}`** (asked when {condition(gate)}): {recommended(gate)}"
+            text = f"**`{gate.name}`** (asked when {condition_prose(gate)}): {recommended(gate)}"
             lines += _wrap(text, prefix="- ")
     return "\n".join(lines)
 
@@ -165,7 +165,7 @@ def render_project_details(model: Model) -> str:
     ]
     lines += [
         f"| `{question.name}` | {support_ledger.cell(default_prose(question))}"
-        f" | {support_ledger.cell(condition(question))}"
+        f" | {support_ledger.cell(condition_prose(question))}"
         f" | {support_ledger.cell(prompt_line(question))} |"
         for question in model.project_details
     ]

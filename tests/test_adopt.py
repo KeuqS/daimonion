@@ -25,7 +25,11 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools import adopt  # noqa: E402
+from tools import adopt_cli  # noqa: E402
+from tools import adopt_report  # noqa: E402
+from tools import adopt_revision  # noqa: E402
+from tools import adopt_run  # noqa: E402
+from tools import adopt_types  # noqa: E402
 from tools import batch  # noqa: E402
 
 
@@ -66,7 +70,7 @@ def digest(root: Path) -> str:
 
 def without_journal(snapshot: dict[str, bytes]) -> dict[str, bytes]:
     """A tree snapshot minus the journal, which is the run's own bookkeeping."""
-    return {name: content for name, content in snapshot.items() if name != adopt.JOURNAL_NAME}
+    return {name: content for name, content in snapshot.items() if name != adopt_types.JOURNAL_NAME}
 
 
 def pre_existing(snapshot: dict[str, bytes], before: dict[str, bytes]) -> dict[str, bytes]:
@@ -94,9 +98,9 @@ def test_resolve_ref_uses_a_tag_only_when_it_carries_the_questionnaire(tmp_path:
     git(template, "add", "-A")
     git(template, "commit", "-qm", "one question")
     git(template, "tag", "v1")
-    monkeypatch.setattr(adopt, "TOP", template)
+    monkeypatch.setattr(adopt_types, "TOP", template)
 
-    ref, reason = adopt.resolve_ref()
+    ref, reason = adopt_revision.resolve_ref()
     assert ref == "v1", "a tag with this questionnaire is the right default"
     assert "v1" in reason, "the judgement names the tag it chose"
 
@@ -106,17 +110,17 @@ def test_resolve_ref_uses_a_tag_only_when_it_carries_the_questionnaire(tmp_path:
     git(template, "add", "-A")
     git(template, "commit", "-qm", "second question")
 
-    ref, reason = adopt.resolve_ref()
+    ref, reason = adopt_revision.resolve_ref()
     assert ref == "main", "a tag missing a question must not be used"
     assert "beta" in reason, "the judgement names the question the tag lacks"
-    assert adopt.resolve_ref("HEAD")[0] == "HEAD", "an explicit ref is honoured"
+    assert adopt_revision.resolve_ref("HEAD")[0] == "HEAD", "an explicit ref is honoured"
 
 
 def test_dry_run_writes_nothing(tmp_path: Path):
     project = make_project(tmp_path)
     before = tree(project)
 
-    result = adopt.adopt(project, ref="HEAD", dry_run=True)
+    result = adopt_run.adopt(project, ref="HEAD", dry_run=True)
 
     assert result.ok and not result.applied
     assert result.mode == "adopt"
@@ -127,7 +131,7 @@ def test_dry_run_writes_nothing(tmp_path: Path):
 def test_adoption_keeps_existing_files_and_adds_the_rest(tmp_path: Path):
     project = make_project(tmp_path)
 
-    result = adopt.adopt(project, ref="HEAD")
+    result = adopt_run.adopt(project, ref="HEAD")
 
     assert result.ok and result.applied
     assert result.error is None
@@ -139,8 +143,8 @@ def test_adoption_keeps_existing_files_and_adds_the_rest(tmp_path: Path):
     assert (project / ".github" / "workflows" / "_hygiene.yml").exists()
     assert sorted(result.unchanged) == [".github/workflows/ci.yml", "README.md", "pyproject.toml", "renovate.json"]
     assert result.created and not result.removed and not result.restored
-    assert adopt.JOURNAL_NAME not in result.created, "the journal is the run's own bookkeeping"
-    assert not (project / adopt.JOURNAL_NAME).exists(), "a committed run leaves no journal"
+    assert adopt_types.JOURNAL_NAME not in result.created, "the journal is the run's own bookkeeping"
+    assert not (project / adopt_types.JOURNAL_NAME).exists(), "a committed run leaves no journal"
 
 
 def test_a_collision_that_was_not_skipped_rolls_the_project_back(tmp_path: Path):
@@ -153,7 +157,7 @@ def test_a_collision_that_was_not_skipped_rolls_the_project_back(tmp_path: Path)
     project = make_project(tmp_path)
     before = tree(project)
 
-    result = adopt.adopt(project, ref="HEAD", skip=[])
+    result = adopt_run.adopt(project, ref="HEAD", skip=[])
 
     assert not result.ok and not result.applied
     assert result.error is not None, "the collision must be reported"
@@ -161,7 +165,7 @@ def test_a_collision_that_was_not_skipped_rolls_the_project_back(tmp_path: Path)
     assert tree(project) == before, "every file is back to its old bytes"
     directories = {str(path.relative_to(project)) for path in project.rglob("*") if path.is_dir()}
     assert directories == {".github", ".github/workflows"}, "not even an empty directory is left behind"
-    assert not (project / adopt.JOURNAL_NAME).exists(), "a rolled-back run leaves no journal"
+    assert not (project / adopt_types.JOURNAL_NAME).exists(), "a rolled-back run leaves no journal"
 
 
 def test_adoption_merges_the_template_dependencies(tmp_path: Path):
@@ -171,17 +175,21 @@ def test_adoption_merges_the_template_dependencies(tmp_path: Path):
         '[project]\nname = "legacy"\nversion = "0"\n# my pin\ndependencies = ["structlog>=9"]\n'
     )
 
-    result = adopt.adopt(project, ref="HEAD")
+    result = adopt_run.adopt(project, ref="HEAD")
 
-    assert result.ok and result.deps is not None
-    assert result.deps["added"]["dev"], "the dev toolchain is merged"
-    assert result.deps["kept"]["runtime"] == ["structlog"], "the dependency they already declare is left alone"
+    assert result.ok and result.merged_dependencies is not None
+    assert result.merged_dependencies["added"]["dev"], "the dev toolchain is merged"
+    assert result.merged_dependencies["kept"]["runtime"] == ["structlog"], (
+        "the dependency they already declare is left alone"
+    )
     text = (project / "pyproject.toml").read_text()
     assert "# my pin" in text, "the adopter's file is edited, not replaced"
     merged = tomllib.loads(text)
     assert "structlog>=9" in merged["project"]["dependencies"], "their constraint survives"
     assert "dependency-groups" in merged
-    assert any("structlog" in line for line in result.deps["differing"]), "their pin wins, and is reported"
+    assert any("structlog" in line for line in result.merged_dependencies["differing"]), (
+        "their pin wins, and is reported"
+    )
 
 
 def test_runtime_dependencies_of_a_layer_are_merged(tmp_path: Path):
@@ -189,10 +197,10 @@ def test_runtime_dependencies_of_a_layer_are_merged(tmp_path: Path):
     project = make_project(tmp_path)
     (project / "pyproject.toml").write_text('[project]\nname = "legacy"\nversion = "0"\ndependencies = []\n')
 
-    result = adopt.adopt(project, ref="HEAD", answers={"project_type": "web_api"})
+    result = adopt_run.adopt(project, ref="HEAD", answers={"project_type": "web_api"})
 
-    assert result.ok and result.deps is not None
-    added = result.deps["added"]["runtime"]
+    assert result.ok and result.merged_dependencies is not None
+    added = result.merged_dependencies["added"]["runtime"]
     assert any(spec.startswith("fastapi") for spec in added), added
     assert any(spec.startswith("sqlalchemy") for spec in added), added
     assert (project / "app" / "main.py").is_file(), "the layer itself is rendered"
@@ -207,14 +215,14 @@ def test_adoption_merges_gitignore_makefile_and_ci(tmp_path: Path):
     workflows = project / ".github" / "workflows"
     (workflows / "ci.yml").write_text("# MY OWN CI\n")
 
-    result = adopt.adopt(
+    result = adopt_run.adopt(
         project,
         ref="HEAD",
         answers={"use_recommended_toolchain": False, "package_manager": "uv", "task_runner": "make"},
     )
 
     assert result.ok
-    merged = {entry["path"]: entry for entry in result.files_merged}
+    merged = {entry["path"]: entry for entry in result.merged_files}
     assert any(path.endswith(".gitignore") for path in merged)
     assert set(merged).intersection({str(project / ".gitignore"), str(project / "Makefile")})
 
@@ -234,22 +242,22 @@ def test_adoption_merges_tool_config_but_not_project_paths(tmp_path: Path):
         '[project]\nname = "legacy"\nversion = "0"\n\n[tool.ruff]\nline-length = 100\n'
     )
 
-    result = adopt.adopt(project, ref="HEAD")
+    result = adopt_run.adopt(project, ref="HEAD")
 
-    assert result.ok and result.tool_config is not None
+    assert result.ok and result.merged_tool_config is not None
     parsed = tomllib.loads((project / "pyproject.toml").read_text())
     assert parsed["tool"]["ruff"]["line-length"] == 100, "their setting survives"
     assert parsed["tool"]["ruff"]["lint"]["select"] == ["ALL"], "the template's lint rule set is merged in"
     assert "src" not in parsed["tool"]["ruff"], "the template's path-shaped value is not copied"
-    assert any("tool.ruff.line-length" in line for line in result.tool_config["kept"])
-    assert result.tool_config["needs_your_value"], "path-shaped values are reported, not copied"
+    assert any("tool.ruff.line-length" in line for line in result.merged_tool_config["kept"])
+    assert result.merged_tool_config["needs_your_value"], "path-shaped values are reported, not copied"
 
 
 def test_confirmation_yes_applies_the_merges(tmp_path: Path):
     project = make_project(tmp_path)
     (project / ".gitignore").write_text("*.pyc\n")
 
-    result = adopt.adopt(project, ref="HEAD", ask=lambda _question: "yes")
+    result = adopt_run.adopt(project, ref="HEAD", ask=lambda _question: "yes")
 
     assert result.ok and not result.cancelled
     assert "__pycache__" in (project / ".gitignore").read_text()
@@ -259,7 +267,7 @@ def test_confirmation_no_keeps_the_render_and_skips_the_merges(tmp_path: Path):
     project = make_project(tmp_path)
     (project / ".gitignore").write_text("*.pyc\n")
 
-    result = adopt.adopt(project, ref="HEAD", ask=lambda _question: "no")
+    result = adopt_run.adopt(project, ref="HEAD", ask=lambda _question: "no")
 
     assert result.ok and not result.cancelled
     assert (project / ".gitignore").read_text() == "*.pyc\n", "their file is untouched"
@@ -270,7 +278,7 @@ def test_confirmation_cancel_rolls_the_render_back(tmp_path: Path):
     project = make_project(tmp_path)
     before = tree(project)
 
-    result = adopt.adopt(project, ref="HEAD", ask=lambda _question: "cancel")
+    result = adopt_run.adopt(project, ref="HEAD", ask=lambda _question: "cancel")
 
     assert result.cancelled and not result.ok and result.error is None
     assert tree(project) == before, "nothing of the adoption is left behind"
@@ -289,7 +297,7 @@ def test_confirmation_can_approve_a_project_specific_value(tmp_path: Path):
         asked.append(question)
         return "yes"
 
-    result = adopt.adopt(project, ref="HEAD", ask=answer)
+    result = adopt_run.adopt(project, ref="HEAD", ask=answer)
 
     assert result.ok
     assert any("tool.basedpyright.include" in question for question in asked), asked[:3]
@@ -311,7 +319,7 @@ def test_confirmation_all_approves_every_remaining_value(tmp_path: Path):
         asked.append(question)
         return "all" if question.startswith("add ") else "yes"
 
-    result = adopt.adopt(project, ref="HEAD", ask=answer)
+    result = adopt_run.adopt(project, ref="HEAD", ask=answer)
 
     assert result.ok
     value_questions = [question for question in asked if question.startswith("add ")]
@@ -332,7 +340,7 @@ def test_confirmation_can_approve_appending_to_the_taskfile(tmp_path: Path):
         asked.append(question)
         return "yes"
 
-    result = adopt.adopt(
+    result = adopt_run.adopt(
         project,
         ref="HEAD",
         ask=answer,
@@ -351,7 +359,7 @@ def test_taskfile_is_left_alone_without_approval(tmp_path: Path):
     (project / "Taskfile.yml").write_text("version: '3'\n\ntasks:\n  mine:\n    cmds:\n      - echo mine\n")
     before = (project / "Taskfile.yml").read_text()
 
-    result = adopt.adopt(project, ref="HEAD", ask=lambda _question: "no")
+    result = adopt_run.adopt(project, ref="HEAD", ask=lambda _question: "no")
 
     assert result.ok
     assert (project / "Taskfile.yml").read_text() == before
@@ -367,11 +375,15 @@ def test_plan_and_report_share_one_merge_summary(tmp_path: Path):
     entrances to the same lines on a real plan.
     """
     project = make_project(tmp_path)
-    result = adopt.adopt(project, ref="HEAD", dry_run=True)
+    result = adopt_run.adopt(project, ref="HEAD", dry_run=True)
 
-    plan = {"dependencies": result.deps, "tool_config": result.tool_config, "files": result.files_merged}
-    summary = adopt._merge_summary(result)  # noqa: SLF001
-    assert summary == adopt._merge_summary_from(plan)  # noqa: SLF001
+    plan = {
+        "merged_dependencies": result.merged_dependencies,
+        "merged_tool_config": result.merged_tool_config,
+        "merged_files": result.merged_files,
+    }
+    summary = adopt_report._merge_summary(result)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert summary == adopt_report._merge_summary_from(plan)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     assert summary, "the fixture has something to merge; an empty summary makes the equality vacuous"
 
 
@@ -399,7 +411,7 @@ def test_one_run_renders_the_fresh_scaffold_once(
         real(*args, **kwargs)
 
     monkeypatch.setattr(batch, "render", counting)
-    result = adopt.adopt(project, ref="HEAD", ask=ask)
+    result = adopt_run.adopt(project, ref="HEAD", ask=ask)
 
     assert result.ok and not result.cancelled
     assert renders == 2, "the render into the target plus the one shared fresh scaffold"
@@ -410,9 +422,9 @@ def test_adoption_does_not_merge_when_asked_not_to(tmp_path: Path):
     project = make_project(tmp_path)
     before = (project / "pyproject.toml").read_text()
 
-    result = adopt.adopt(project, ref="HEAD", merge_generated=False)
+    result = adopt_run.adopt(project, ref="HEAD", merge_generated=False)
 
-    assert result.ok and result.deps is None
+    assert result.ok and result.merged_dependencies is None
     assert (project / "pyproject.toml").read_text() == before
 
 
@@ -420,10 +432,10 @@ def test_dry_run_reports_the_dependency_plan_without_writing(tmp_path: Path):
     project = make_project(tmp_path)
     before = (project / "pyproject.toml").read_text()
 
-    result = adopt.adopt(project, ref="HEAD", dry_run=True)
+    result = adopt_run.adopt(project, ref="HEAD", dry_run=True)
 
-    assert result.ok and result.deps is not None
-    assert "structlog" in result.deps["added"]["runtime"]
+    assert result.ok and result.merged_dependencies is not None
+    assert "structlog" in result.merged_dependencies["added"]["runtime"]
     assert (project / "pyproject.toml").read_text() == before
 
 
@@ -434,59 +446,59 @@ def test_merge_verification_detects_a_rewritten_requirement(tmp_path: Path):
     target.write_text('[project]\nname = "legacy"\nversion = "0"\ndependencies = ["httpx>=0.20"]\n')
     before = target.read_bytes()
 
-    assert adopt.merge_problem(target, before) is None, "unchanged file is fine"
+    assert adopt_report.merge_problem(target, before) is None, "unchanged file is fine"
 
     target.write_text('[project]\nname = "legacy"\nversion = "0"\ndependencies = ["httpx>=0.20", "structlog"]\n')
-    assert adopt.merge_problem(target, before) is None, "appending is not a violation"
+    assert adopt_report.merge_problem(target, before) is None, "appending is not a violation"
 
     target.write_text('[project]\nname = "legacy"\nversion = "0"\ndependencies = ["httpx>=0.99"]\n')
-    problem = adopt.merge_problem(target, before)
+    problem = adopt_report.merge_problem(target, before)
     assert problem is not None and "httpx" in problem
 
     target.write_text("this is not toml\n")
-    assert adopt.merge_problem(target, before), "an unparsable file is a merge problem"
+    assert adopt_report.merge_problem(target, before), "an unparsable file is a merge problem"
 
     # ... but only when it parsed *before*: the merge refuses to touch a file
     # that never parsed, so blaming it there refused the whole adoption with a
     # misleading message (found by the stateful adopt run).
-    assert adopt.merge_problem(target, b"this is not toml\n") is None, "the merge did not break it"
+    assert adopt_report.merge_problem(target, b"this is not toml\n") is None, "the merge did not break it"
 
 
 def test_refuses_a_project_this_template_already_generated(tmp_path: Path):
     (tmp_path / ".copier-answers.yml").write_text("_src_path: https://github.com/ConstitutiveTemplates/daimonion.git\n")
-    with pytest.raises(adopt.AdoptError):
-        adopt.adopt(tmp_path, ref="HEAD")
+    with pytest.raises(adopt_types.AdoptError):
+        adopt_run.adopt(tmp_path, ref="HEAD")
 
 
 def test_refuses_a_foreign_template_until_takeover(tmp_path: Path):
     make_project(tmp_path)
     (tmp_path / ".copier-answers.yml").write_text("_src_path: https://github.com/other/template.git\n")
-    with pytest.raises(adopt.OwnershipError):
-        adopt.adopt(tmp_path, ref="HEAD")
+    with pytest.raises(adopt_types.OwnershipError):
+        adopt_run.adopt(tmp_path, ref="HEAD")
 
-    result = adopt.adopt(tmp_path, ref="HEAD", takeover=True, dry_run=True)
+    result = adopt_run.adopt(tmp_path, ref="HEAD", takeover=True, dry_run=True)
     assert result.ok and result.mode == "adopt"
 
 
 def test_main_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     project = make_project(tmp_path)
-    assert adopt.main([str(project), "--ref", "HEAD", "--dry-run", "--no-merge"]) == 0
+    assert adopt_cli.main([str(project), "--ref", "HEAD", "--dry-run", "--no-merge"]) == 0
     assert capsys.readouterr().out.strip(), "a dry run still reports"
 
     # an uncovered collision: exit 1, and the project is back to its old self
     before = tree(project)
-    assert adopt.main([str(project), "--ref", "HEAD", "--no-merge", "--skip", "nothing-actually-collides"]) == 1
+    assert adopt_cli.main([str(project), "--ref", "HEAD", "--no-merge", "--skip", "nothing-actually-collides"]) == 1
     assert tree(project) == before
 
     other = tmp_path / "other"
     other.mkdir()
     (other / ".copier-answers.yml").write_text("_src_path: https://github.com/other/template.git\n")
-    assert adopt.main([str(other), "--ref", "HEAD"]) == 3
+    assert adopt_cli.main([str(other), "--ref", "HEAD"]) == 3
     assert capsys.readouterr().err.strip(), "the refusal explains itself on stderr"
 
 
 def test_main_rejects_a_missing_directory(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
-    assert adopt.main([str(tmp_path / "nope")]) == 2
+    assert adopt_cli.main([str(tmp_path / "nope")]) == 2
     assert capsys.readouterr().err.strip(), "the refusal explains itself on stderr"
 
 
@@ -514,7 +526,7 @@ def test_a_killed_adoption_is_recovered_byte_for_byte(tmp_path: Path, crash_at: 
 
     killed = run_cli(project, "--ref", "HEAD", "--yes", COPIER_ADOPT_CRASH_AT=crash_at)
     assert killed.returncode == -signal.SIGKILL, killed.stderr
-    assert (project / adopt.JOURNAL_NAME).is_file(), "the journal has to survive the kill"
+    assert (project / adopt_types.JOURNAL_NAME).is_file(), "the journal has to survive the kill"
     assert tree(project) != before, "the drill has to have written something to be worth recovering"
 
     recovered = run_recover(project)
@@ -523,7 +535,7 @@ def test_a_killed_adoption_is_recovered_byte_for_byte(tmp_path: Path, crash_at: 
     assert tree(project) == before, "every file is back to its old bytes"
     assert dirs(project) == before_dirs, "not even an empty directory the run made is left"
     assert digest(project) == identity
-    assert not (project / adopt.JOURNAL_NAME).exists(), "the journal goes with the interrupted run"
+    assert not (project / adopt_types.JOURNAL_NAME).exists(), "the journal goes with the interrupted run"
 
     again = run_recover(project)
     assert again.returncode == 0
@@ -551,7 +563,7 @@ def test_a_kill_during_the_rollback_is_recovered_byte_for_byte(tmp_path: Path):
         project, "--ref", "HEAD", "--yes", "--skip", "nothing-actually-collides", COPIER_ADOPT_CRASH_AT="rollback"
     )
     assert killed.returncode == -signal.SIGKILL, killed.stderr
-    assert (project / adopt.JOURNAL_NAME).is_file(), "the journal outlives a rollback killed mid-undo"
+    assert (project / adopt_types.JOURNAL_NAME).is_file(), "the journal outlives a rollback killed mid-undo"
     interrupted = without_journal(tree(project))
     assert interrupted != before, "the drill has to catch the undo in progress, not before it"
     assert set(interrupted) - set(before), "some of what the run created is still there for recovery to remove"
@@ -565,7 +577,7 @@ def test_a_kill_during_the_rollback_is_recovered_byte_for_byte(tmp_path: Path):
     assert tree(project) == before, "recovery finished the rollback the kill interrupted"
     assert dirs(project) == before_dirs, "not even an empty directory survives the finished undo"
     assert digest(project) == identity
-    assert not (project / adopt.JOURNAL_NAME).exists(), "the journal goes once the undo is done"
+    assert not (project / adopt_types.JOURNAL_NAME).exists(), "the journal goes once the undo is done"
 
     again = run_recover(project)
     assert again.returncode == 0
@@ -592,11 +604,11 @@ def test_a_kill_during_the_recovery_converges_on_the_next_one(tmp_path: Path, ki
 
     killed = run_cli(project, "--ref", "HEAD", "--yes", COPIER_ADOPT_CRASH_AT=killed_at)
     assert killed.returncode == -signal.SIGKILL, killed.stderr
-    assert (project / adopt.JOURNAL_NAME).is_file()
+    assert (project / adopt_types.JOURNAL_NAME).is_file()
 
     dying = run_recover(project, COPIER_ADOPT_CRASH_AT="recover")
     assert dying.returncode == -signal.SIGKILL, dying.stderr
-    assert (project / adopt.JOURNAL_NAME).is_file(), "the journal survives the recovery it was mid-way through"
+    assert (project / adopt_types.JOURNAL_NAME).is_file(), "the journal survives the recovery it was mid-way through"
     interrupted = without_journal(tree(project))
     assert interrupted != before, "the drill has to catch the recovery in progress, not before it"
     assert pre_existing(interrupted, before) == before, (
@@ -610,7 +622,7 @@ def test_a_kill_during_the_recovery_converges_on_the_next_one(tmp_path: Path, ki
     assert tree(project) == before, "the second recovery finishes what the first could not"
     assert dirs(project) == before_dirs
     assert digest(project) == identity
-    assert not (project / adopt.JOURNAL_NAME).exists()
+    assert not (project / adopt_types.JOURNAL_NAME).exists()
 
     again = run_recover(project)
     assert again.returncode == 0
@@ -628,13 +640,17 @@ def test_the_journal_records_the_old_bytes_and_what_was_there(tmp_path: Path):
     killed = run_cli(project, "--ref", "HEAD", "--yes", COPIER_ADOPT_CRASH_AT="render:1")
     assert killed.returncode == -signal.SIGKILL
 
-    journal = json.loads((project / adopt.JOURNAL_NAME).read_text())
-    assert journal["version"] == 1
+    journal = json.loads((project / adopt_types.JOURNAL_NAME).read_text())
+    assert journal["version"] == 2
     assert journal["target"] == str(project), "the journal names the project it belongs to"
-    assert sorted(journal["old"]) == sorted(before), "the old bytes of every file the run may modify are recorded"
-    assert sorted(journal["existing"]) == sorted(before), "and every file that was there is listed"
-    assert adopt.JOURNAL_NAME not in journal["existing"], "the journal itself is not one of the files it records"
-    assert journal["dirs"] == [".github", ".github/workflows"], "the directories, so recovery can remove empty ones"
+    assert sorted(journal["old_bytes"]) == sorted(before), "the old bytes of every file the run may modify are recorded"
+    assert sorted(journal["preexisting_files"]) == sorted(before), "and every file that was there is listed"
+    assert adopt_types.JOURNAL_NAME not in journal["preexisting_files"], (
+        "the journal itself is not one of the files it records"
+    )
+    assert journal["preexisting_dirs"] == [".github", ".github/workflows"], (
+        "the directories, so recovery can remove empty ones"
+    )
 
 
 def test_a_stale_journal_refuses_a_new_adoption(tmp_path: Path):
@@ -648,10 +664,10 @@ def test_a_stale_journal_refuses_a_new_adoption(tmp_path: Path):
     assert refused.returncode == 4
     assert "--recover" in refused.stderr, "the refusal says how to get out"
     assert tree(project) == interrupted, "the refusal wrote nothing"
-    assert (project / adopt.JOURNAL_NAME).is_file(), "and it left the journal alone"
+    assert (project / adopt_types.JOURNAL_NAME).is_file(), "and it left the journal alone"
 
-    with pytest.raises(adopt.StaleJournalError):
-        adopt.adopt(project, ref="HEAD")
+    with pytest.raises(adopt_types.StaleJournalError):
+        adopt_run.adopt(project, ref="HEAD")
 
 
 def test_recovery_reports_json_and_succeeds_when_there_is_nothing_to_do(tmp_path: Path):
@@ -685,7 +701,7 @@ def test_recovery_refuses_a_journal_from_another_project(tmp_path: Path):
     killed = run_cli(project, "--ref", "HEAD", "--yes", COPIER_ADOPT_CRASH_AT="render:20")
     assert killed.returncode == -signal.SIGKILL
     elsewhere = make_project(tmp_path / "elsewhere")
-    (elsewhere / adopt.JOURNAL_NAME).write_bytes((project / adopt.JOURNAL_NAME).read_bytes())
+    (elsewhere / adopt_types.JOURNAL_NAME).write_bytes((project / adopt_types.JOURNAL_NAME).read_bytes())
     untouched = tree(elsewhere)
 
     refused = run_recover(elsewhere)
@@ -714,9 +730,9 @@ def test_a_signal_mid_run_rolls_the_project_back(tmp_path: Path, monkeypatch: py
         raise AssertionError(message)
 
     monkeypatch.setattr(batch, "render", interrupted)
-    result = adopt.adopt(project, ref="HEAD")
+    result = adopt_run.adopt(project, ref="HEAD")
 
     assert not result.ok and not result.applied
     assert result.error is not None and "interrupted" in result.error, result.error
     assert tree(project) == before, "a signal is a rollback, not a half-written project"
-    assert not (project / adopt.JOURNAL_NAME).exists(), "the journal goes with the rollback"
+    assert not (project / adopt_types.JOURNAL_NAME).exists(), "the journal goes with the rollback"

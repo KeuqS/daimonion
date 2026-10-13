@@ -9,7 +9,9 @@ it promises (0 ok / 1 failed / 2 invalid request / 3 refused -- the same
 contract as the tools it dispatches to).
 
 The collaborators are patched at this module's boundary (`cli.detect.detect`,
-`cli.adopt.adopt`, `cli.batch.render`) so each branch is one in-process call: a
+`cli.adopt_run.adopt`, `cli.adopt_report.render_report`,
+`cli.adopt_revision.resolve_ref`, `cli.adopt_merge.render_fresh_source`,
+`cli.batch.render`) so each branch is one in-process call: a
 real render, adoption or detector run is that tool's test's subject, not this
 dispatcher's. The one path exercised for real is preset loading, whose failure
 is this module's own.
@@ -25,7 +27,11 @@ TOP = Path(__file__).absolute().parent.parent
 if str(TOP) not in sys.path:  # tests/test_adopt.py does the same to reach tools/
     sys.path.insert(0, str(TOP))
 
-from tools import adopt  # noqa: E402
+from tools import adopt_merge  # noqa: E402
+from tools import adopt_report  # noqa: E402
+from tools import adopt_revision  # noqa: E402
+from tools import adopt_run  # noqa: E402
+from tools import adopt_types  # noqa: E402
 from tools import batch  # noqa: E402
 from tools import cli  # noqa: E402
 from tools import detect  # noqa: E402
@@ -38,7 +44,7 @@ def _detection(mode: str, **overrides: Any) -> detect.Detection:
     return detect.Detection(**fields)
 
 
-def _adoption(**overrides: Any) -> adopt.Adoption:
+def _adoption(**overrides: Any) -> adopt_types.Adoption:
     """An Adoption with the fields this dispatcher reads."""
     fields: dict[str, Any] = {
         "target": "/tmp/target",
@@ -47,7 +53,7 @@ def _adoption(**overrides: Any) -> adopt.Adoption:
         "ref_reason": "the working tree",
     }
     fields.update(overrides)
-    return adopt.Adoption(**fields)
+    return adopt_types.Adoption(**fields)
 
 
 # cli.py imports these modules at module level and reads their attributes as
@@ -68,7 +74,7 @@ def test_new_fresh_renders_and_reports_zero(
     monkeypatch.setattr(
         detect, "detect", lambda *a, **k: _detection("fresh", suggested_answers={"existing_project": False})
     )
-    monkeypatch.setattr(adopt, "resolve_ref", lambda requested=None: ("HEAD", "the working tree"))
+    monkeypatch.setattr(adopt_revision, "resolve_ref", lambda requested=None: ("HEAD", "the working tree"))
     monkeypatch.setattr(batch, "render", fake_render)
 
     assert cli.new(tmp_path, preset=None, ref=None, dry_run=False) == cli.OK
@@ -84,7 +90,7 @@ def test_new_fresh_with_preset_keeps_copier_defaults(tmp_path: Path, monkeypatch
     """A preset makes the run non-interactive, so the render keeps copier's defaults."""
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(detect, "detect", lambda *a, **k: _detection("fresh", suggested_answers={}))
-    monkeypatch.setattr(adopt, "resolve_ref", lambda requested=None: ("HEAD", "why"))
+    monkeypatch.setattr(adopt_revision, "resolve_ref", lambda requested=None: ("HEAD", "why"))
 
     def fake_render(*args: Any, **kwargs: Any) -> None:
         calls.append(kwargs)
@@ -109,7 +115,7 @@ def test_new_fresh_preset_warns_only_for_keys_the_rendered_ref_drops(
     from types import SimpleNamespace
 
     monkeypatch.setattr(detect, "detect", lambda *a, **k: _detection("fresh", suggested_answers={}))
-    monkeypatch.setattr(adopt, "resolve_ref", lambda requested=None: ("6.1.0", "latest tag"))
+    monkeypatch.setattr(adopt_revision, "resolve_ref", lambda requested=None: ("6.1.0", "latest tag"))
 
     def fake_render(_src: str, dest: Path, _data: dict[str, Any], _ref: str = "HEAD", **_kwargs: Any) -> Any:
         (Path(dest) / "README.md").write_text("")
@@ -128,14 +134,14 @@ def test_new_fresh_preset_warns_only_for_keys_the_rendered_ref_drops(
 def test_new_fresh_dry_run_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    """`--dry-run` plans through adopt.render_fresh_source and never renders."""
+    """`--dry-run` plans through adopt_merge.render_fresh_source and never renders."""
     source = tmp_path / "plan"
     (source / "pkg").mkdir(parents=True)
     (source / "pkg" / "__init__.py").write_text("")
     (source / "README.md").write_text("")
     monkeypatch.setattr(detect, "detect", lambda *a, **k: _detection("fresh", suggested_answers={}))
-    monkeypatch.setattr(adopt, "resolve_ref", lambda requested=None: ("HEAD", "the working tree"))
-    monkeypatch.setattr(adopt, "render_fresh_source", lambda data, ref: source)
+    monkeypatch.setattr(adopt_revision, "resolve_ref", lambda requested=None: ("HEAD", "the working tree"))
+    monkeypatch.setattr(adopt_merge, "render_fresh_source", lambda data, ref: source)
     monkeypatch.setattr(batch, "render", lambda *a, **k: pytest.fail("a dry run must not render"))
 
     target = tmp_path / "target"
@@ -174,13 +180,13 @@ def test_new_adopt_goes_through_the_transaction(
     """`adopt` mode delegates to tools/adopt.py, never merges, and warns on collisions."""
     calls: list[dict[str, Any]] = []
 
-    def fake_adopt(target: Path, **kwargs: Any) -> adopt.Adoption:
+    def fake_adopt(target: Path, **kwargs: Any) -> adopt_types.Adoption:
         calls.append({"target": target, **kwargs})
         return _adoption(ok=True)
 
     monkeypatch.setattr(detect, "detect", lambda *a, **k: _detection("adopt", collisions=["README.md"]))
-    monkeypatch.setattr(adopt, "adopt", fake_adopt)
-    monkeypatch.setattr(adopt, "render_report", lambda adoption: "adopted 1 file(s)")
+    monkeypatch.setattr(adopt_run, "adopt", fake_adopt)
+    monkeypatch.setattr(adopt_report, "render_report", lambda adoption: "adopted 1 file(s)")
 
     assert cli.new(tmp_path, preset=None, ref=None, dry_run=False) == cli.OK
     assert calls and calls[0]["merge_generated"] is False  # the CLI never merges
@@ -194,8 +200,8 @@ def test_new_adopt_reports_a_failed_run(
 ):
     """An adoption that did not hold returns 1, the same verdict the tool reports."""
     monkeypatch.setattr(detect, "detect", lambda *a, **k: _detection("adopt"))
-    monkeypatch.setattr(adopt, "adopt", lambda *a, **k: _adoption(ok=False, error="rollback ran"))
-    monkeypatch.setattr(adopt, "render_report", lambda adoption: "rolled back")
+    monkeypatch.setattr(adopt_run, "adopt", lambda *a, **k: _adoption(ok=False, error="rollback ran"))
+    monkeypatch.setattr(adopt_report, "render_report", lambda adoption: "rolled back")
 
     assert cli.new(tmp_path, preset=None, ref=None, dry_run=False) == cli.FAILED
     assert "rolled back" in capsys.readouterr().out
@@ -208,10 +214,10 @@ def test_new_adopt_refuses_a_foreign_owner(
 
     def refuse(*_args: Any, **_kwargs: Any) -> None:
         message = "owned by another template"
-        raise adopt.OwnershipError(message)
+        raise adopt_types.OwnershipError(message)
 
     monkeypatch.setattr(detect, "detect", lambda *a, **k: _detection("adopt"))
-    monkeypatch.setattr(adopt, "adopt", refuse)
+    monkeypatch.setattr(adopt_run, "adopt", refuse)
 
     assert cli.new(tmp_path, preset=None, ref=None, dry_run=False) == cli.REFUSED
     assert "owned by another template" in capsys.readouterr().err

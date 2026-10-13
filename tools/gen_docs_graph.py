@@ -31,12 +31,12 @@ from tools.gen_docs_model import ALL_TYPES  # noqa: E402
 from tools.gen_docs_model import GATE_PREFIX  # noqa: E402
 from tools.gen_docs_model import GenDocsError  # noqa: E402
 from tools.gen_docs_model import Model  # noqa: E402
-from tools.gen_docs_prose import _br  # noqa: E402
-from tools.gen_docs_prose import _es  # noqa: E402
+from tools.gen_docs_prose import _break_label  # noqa: E402
+from tools.gen_docs_prose import _escape_label  # noqa: E402
 from tools.gen_docs_prose import _short_gate_label  # noqa: E402
 from tools.gen_docs_prose import asked_for_values  # noqa: E402
 from tools.gen_docs_prose import choice_help  # noqa: E402
-from tools.gen_docs_prose import condition  # noqa: E402
+from tools.gen_docs_prose import condition_prose  # noqa: E402
 from tools.questionnaire import Question  # noqa: E402
 
 
@@ -69,7 +69,7 @@ def _ask_label() -> Callable[[list[Question]], str]:
             choices = [str(choice) for choice in question.choices] or list(choice_help(question))
             values = choices or asked_for_values(question)
             parts.append(f"{question.name} ({' / '.join(values)})" if values else question.name)
-        return f"ask: {_br(parts)}"
+        return f"ask: {_break_label(parts)}"
 
     return label
 
@@ -106,7 +106,7 @@ def _graph_project_types(graph: _Graph, early: list[_AskGroup], early_ids: list[
     ask_label = _ask_label()
     for group, node in zip(early, early_ids, strict=True):
         graph.add(f'    PT -->|{group.choice}| {node}["{ask_label(group.questions)}"]')
-    when = condition(head[0])
+    when = condition_prose(head[0])
     edge = f"    PT -->|{when}|" if when != ALL_TYPES else "    PT -->"
     graph.add(f'{edge} {_gate_id(head[0])}{{"{_gate_label(head[0])}"}}')
     if len(head) > 1:
@@ -127,7 +127,7 @@ def _graph_asks(graph: _Graph, late: list[_AskGroup], late_ids: list[str], after
     previous = entry
     for group, diamond, after in zip(late, late_ids, after_ids, strict=True):
         ask = graph.node("Q")
-        graph.add(f'    {diamond}{{"{_es(group.choice)}?"}}')
+        graph.add(f'    {diamond}{{"{_escape_label(group.choice)}?"}}')
         if previous != diamond:
             graph.add(f"    {previous} --> {diamond}")
         graph.add(
@@ -210,11 +210,11 @@ def render_mermaid(model: Model) -> str:
         _graph_branches(graph, gate, after)
     _graph_asks(graph, late, late_ids, late_after, after_head)
     if includes_id:
-        names = _br([f"ask: {', '.join(q.name for q in model.includes)}"], 56)
+        names = _break_label([f"ask: {', '.join(q.name for q in model.includes)}"], 56)
         label = f'INC["{names}<br/>(each only for the bases it combines with)"]'
         graph.add(f"    {label}" if late_ids else f"    {after_head} --> {label}")
     _graph_tail(graph, tail, entries, [*entries[1:], "PD"], includes_id or after_head)
-    details = _br([q.name for q in model.project_details])
+    details = _break_label([q.name for q in model.project_details])
     graph.add(f'    PD["Project details: {details}"]', "    PD --> End([Generate project])")
     return "\n".join(graph.lines)
 
@@ -236,10 +236,10 @@ def _no_id(gate: Question) -> str:
 
 def _gate_label(gate: Question) -> str:
     """A gate diamond's label: the question, and when it is asked."""
-    when = condition(gate)
+    when = condition_prose(gate)
     if when == ALL_TYPES:
         return f"{gate.name}?"
-    return f"{_es(gate.name)}?<br/>({_es(when)})"
+    return f"{_escape_label(gate.name)}?<br/>({_escape_label(when)})"
 
 
 def _layer_var(gate: Question) -> str | None:

@@ -37,9 +37,9 @@ from tools.adopt_merge import _plan_merges  # noqa: E402
 from tools.adopt_merge import merge_generated_files  # noqa: E402
 from tools.adopt_merge import plan_merges  # noqa: E402
 from tools.adopt_merge import render_fresh_source  # noqa: E402
-from tools.adopt_models import Adoption  # noqa: E402
-from tools.adopt_models import _Run  # noqa: E402
 from tools.adopt_report import _merge_summary_from  # noqa: E402
+from tools.adopt_types import Adoption  # noqa: E402
+from tools.adopt_types import _Run  # noqa: E402
 
 
 def _finish_with_merges(run: _Run, adoption: Adoption, ask: Callable[[str], str] | None) -> None:
@@ -53,7 +53,7 @@ def _finish_with_merges(run: _Run, adoption: Adoption, ask: Callable[[str], str]
     asking also means a decline or a cancel never renders a second time, and
     the scaffold is freed whichever way the run goes.
     """
-    source = render_fresh_source(run.data, run.ref)
+    source = render_fresh_source(run.answers, run.ref)
     try:
         confirmation = _confirm_merges(run, ask, source)
         if confirmation.cancel:
@@ -102,7 +102,7 @@ def _confirm_merges(run: _Run, ask: Callable[[str], str] | None, source: Path) -
     """
     if ask is None:
         return Confirmation()
-    plan = _plan_merges(run.target, run.data, source)
+    plan = _plan_merges(run.target, run.answers, source)
     lines = _merge_summary_from(plan)
     if not lines:
         return Confirmation()
@@ -124,7 +124,7 @@ TASK_APPEND_KINDS = ("taskfile", "python_tasks")
 def _ask_about_task_files(plan: dict[str, Any], ask: Callable[[str], str]) -> set[str]:
     """Ask about the task files (Taskfile.yml, tasks.py, duties.py): appending tasks is a real edit."""
     approved: set[str] = set()
-    for entry in plan["files"]:
+    for entry in plan["merged_files"]:
         if entry.get("kind") not in TASK_APPEND_KINDS or not entry.get("reported"):
             continue
         name = Path(entry["path"]).name
@@ -136,7 +136,7 @@ def _ask_about_task_files(plan: dict[str, Any], ask: Callable[[str], str]) -> se
 def _ask_about_ci_jobs(plan: dict[str, Any], ask: Callable[[str], str]) -> set[str]:
     """Ask where the template's read-only jobs go: into their ci.yml, or beside it."""
     approved: set[str] = set()
-    for entry in plan["files"]:
+    for entry in plan["merged_files"]:
         if entry.get("kind") != "ci_jobs" or not entry.get("reported"):
             continue
         name = Path(entry["path"]).name
@@ -153,7 +153,7 @@ def _ask_about_values(plan: dict[str, Any], ask: Callable[[str], str]) -> set[st
     """Ask, one by one, about the values that name this project."""
     approved: set[str] = set()
     approve_rest = False
-    for line in plan["tool_config"]["needs_your_value"]:
+    for line in plan["merged_tool_config"]["needs_your_value"]:
         key_path = line.split(" (template:")[0]
         if approve_rest:
             approved.add(key_path)
@@ -176,14 +176,16 @@ be added to them (nothing of yours is rewritten):
 Apply? [Y]es / [n]o (render only) / [c]ancel:"""
 
 
-def _plan_only(target: Path, data: dict[str, Any], ref: str, adoption: Adoption, detection: detect.Detection) -> None:
+def _plan_only(
+    target: Path, answers: dict[str, Any], ref: str, adoption: Adoption, detection: detect.Detection
+) -> None:
     """Fill in a dry-run result: what would be rendered, and what merged."""
     adoption.ok = True
     adoption.unchanged = detection.kept
     adoption.notes.append(f"dry run: would render {len(detection.added)} new file(s)")
-    plan = plan_merges(target, data, ref)
-    adoption.deps = plan["dependencies"]
-    adoption.tool_config = plan["tool_config"]
-    adoption.files_merged = plan["files"]
-    for section in (plan["dependencies"], plan["tool_config"]):
+    plan = plan_merges(target, answers, ref)
+    adoption.merged_dependencies = plan["merged_dependencies"]
+    adoption.merged_tool_config = plan["merged_tool_config"]
+    adoption.merged_files = plan["merged_files"]
+    for section in (plan["merged_dependencies"], plan["merged_tool_config"]):
         adoption.notes.extend(section["notes"])

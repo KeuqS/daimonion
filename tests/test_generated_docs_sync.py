@@ -118,7 +118,7 @@ def test_check_detects_drift_and_write_fixes_it(tmp_path: Path):
     model = gen_docs.Model.load(config)
     doc = tmp_path / "doc.md"
     doc.write_text(f"{gen_docs.BEGIN.format(name='areas')}\nstale text\n{gen_docs.END.format(name='areas')}\n")
-    target = gen_docs.Target(doc, "areas", gen_docs.render_areas)
+    target = gen_docs.GeneratedBlock(doc, "areas", gen_docs.render_areas)
 
     problems = gen_docs.check(model, [target])
     assert len(problems) == 1
@@ -155,7 +155,7 @@ def test_task_runner_bullet_marks_the_questionnaires_default():
 
 def test_support_table_is_generated_only_with_support_yml(tmp_path: Path):
     """Without `support.yml` no support block is targeted (W4 owns the file)."""
-    blocks = gen_docs.targets(support=tmp_path / "support.yml")
+    blocks = gen_docs.generated_blocks(support=tmp_path / "support.yml")
     assert "support-table" not in {block.block for block in blocks}
     assert {block.block for block in blocks} >= {"features-areas", "features-mermaid", "areas"}
 
@@ -172,7 +172,7 @@ def test_support_table_follows_the_support_yml_columns(tmp_path: Path):
         "    tier: best_effort\n"
         "    optional: []\n"
     )
-    blocks = gen_docs.targets(support=support)
+    blocks = gen_docs.generated_blocks(support=support)
     target = next(block for block in blocks if block.block == "support-table")
     assert target.path == gen_docs.FEATURES_DOC
     table = target.render_text(gen_docs.Model.load())
@@ -210,7 +210,7 @@ def test_generated_tables_are_well_formed():
     model = gen_docs.Model.load()
     problems = [
         f"{target.block} ({target.path.name}): {problem}"
-        for target in gen_docs.targets()
+        for target in gen_docs.generated_blocks()
         for problem in _ragged_tables(target.render_text(model))
     ]
     assert problems == []

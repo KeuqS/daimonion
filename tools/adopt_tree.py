@@ -24,7 +24,7 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools.adopt_crash import fire_crash_hook  # noqa: E402
+from tools.adopt_crash import crash_drill  # noqa: E402
 
 
 def _files_under(target: Path) -> set[str]:
@@ -116,7 +116,7 @@ def _roll_back(
         restored.append(relative)
         # Crash point: a rollback killed mid-restore, with the rest of the old
         # bytes still to go back and everything the run created still in place.
-        fire_crash_hook("rollback")
+        crash_drill("rollback")
     removed: list[str] = []
     for relative in created:
         path = target / relative
@@ -125,6 +125,6 @@ def _roll_back(
             removed.append(relative)
             # Crash point: a rollback killed mid-deletion, with a subset of the
             # run's files gone and the journal there to name the rest.
-            fire_crash_hook("rollback")
+            crash_drill("rollback")
     _remove_new_dirs(target, before_dirs)
     return sorted(restored), sorted(removed)

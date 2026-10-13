@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """Adopt this template into an existing project, reversibly.
 
-Facade over the `tools/adopt_*` split: every name this module ever
-exported is still importable from here (`adopt.adopt`,
-`adopt.JOURNAL_NAME`, `adopt._crash_at`, ...), and `python tools/adopt.py`
-still runs the CLI. New code should import the owning module directly
-(`tools.adopt_transaction.adopt`, `tools.adopt_journal.recover`, ...);
-this module only re-exports.
+Entry point over the `tools/adopt_*` split; import the owning module
+directly (`tools.adopt_run.adopt`, `tools.adopt_journal.recover`,
+...) -- this module only runs the CLI.
 
 The split, by responsibility:
 
-- `tools.adopt_models`: errors, records, constants, the repo-root reader.
-- `tools.adopt_ref`: which revision to expand, which answers to use.
+- `tools.adopt_types`: errors, records, constants, the repo-root reader.
+- `tools.adopt_revision`: which revision to expand, which answers to use.
 - `tools.adopt_merge`: the merge step (plan and apply).
-- `tools.adopt_files`: durable tree surgery (snapshot, verify, roll back).
+- `tools.adopt_tree`: durable tree surgery (snapshot, verify, roll back).
 - `tools.adopt_journal`: the crash journal and `recover`.
 - `tools.adopt_crash`: crash points and the signal rollback.
-- `tools.adopt_transaction`: the `adopt` transaction itself.
+- `tools.adopt_run`: the `adopt` transaction itself.
 - `tools.adopt_confirm`: the merge confirmation prompt.
 - `tools.adopt_report`: reports and the add-only verdict.
 - `tools.adopt_cli`: argument parsing and `main`.
@@ -34,12 +31,6 @@ options), 3 refused (another copier template owns the project and --takeover
 was not given), 4 a previous run left its journal behind -- recover it first.
 """
 
-# WHYNOT: this facade re-exports every name the pre-split monolith had,
-# privates included, so imported private names are the design, not a leak.
-# pyright: reportPrivateUsage=false
-
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 
@@ -47,168 +38,7 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-
-# Eager re-export facade: no leaf imports this module, so plain imports
-# cannot close a cycle here. `fire_crash_hook` (tools/adopt_crash.py)
-# still reads `tools.adopt._crash_at` through sys.modules at call time,
-# so the test seam works exactly as it did under the lazy facade.
-from tools.adopt_cli import _load_answers  # noqa: E402
-from tools.adopt_cli import _parse_args  # noqa: E402
-from tools.adopt_cli import _parse_data  # noqa: E402
-from tools.adopt_cli import _prompter  # noqa: E402
-from tools.adopt_cli import _recover_from_cli  # noqa: E402
 from tools.adopt_cli import main  # noqa: E402
-from tools.adopt_confirm import _MERGE_QUESTION  # noqa: E402
-from tools.adopt_confirm import TASK_APPEND_KINDS  # noqa: E402
-from tools.adopt_confirm import Confirmation  # noqa: E402
-from tools.adopt_confirm import _ask_about_ci_jobs  # noqa: E402
-from tools.adopt_confirm import _ask_about_task_files  # noqa: E402
-from tools.adopt_confirm import _ask_about_values  # noqa: E402
-from tools.adopt_confirm import _confirm_merges  # noqa: E402
-from tools.adopt_confirm import _finish_with_merges  # noqa: E402
-from tools.adopt_confirm import _plan_only  # noqa: E402
-from tools.adopt_crash import _crash_at  # noqa: E402
-from tools.adopt_crash import _crash_on_write  # noqa: E402
-from tools.adopt_crash import _crash_writes  # noqa: E402
-from tools.adopt_crash import _Interrupted  # noqa: E402
-from tools.adopt_crash import _is_write  # noqa: E402
-from tools.adopt_crash import _signals_roll_back  # noqa: E402
-from tools.adopt_crash import _under  # noqa: E402
-from tools.adopt_files import _dirs_under  # noqa: E402
-from tools.adopt_files import _files_under  # noqa: E402
-from tools.adopt_files import _fsync_dir  # noqa: E402
-from tools.adopt_files import _remove_new_dirs  # noqa: E402
-from tools.adopt_files import _roll_back  # noqa: E402
-from tools.adopt_files import _snapshot  # noqa: E402
-from tools.adopt_files import _verify  # noqa: E402
-from tools.adopt_files import _write_bytes  # noqa: E402
-from tools.adopt_journal import _Journal  # noqa: E402
-from tools.adopt_journal import _read_journal  # noqa: E402
-from tools.adopt_journal import _refuse_stale_journal  # noqa: E402
-from tools.adopt_journal import _remove_journal  # noqa: E402
-from tools.adopt_journal import _restore  # noqa: E402
-from tools.adopt_journal import _undo_run  # noqa: E402
-from tools.adopt_journal import _unlink_created_files  # noqa: E402
-from tools.adopt_journal import _write_journal  # noqa: E402
-from tools.adopt_journal import journal_path  # noqa: E402
-from tools.adopt_journal import recover  # noqa: E402
-from tools.adopt_merge import MERGE_KINDS  # noqa: E402
-from tools.adopt_merge import MERGE_TARGETS  # noqa: E402
-from tools.adopt_merge import _merge_ci_caller  # noqa: E402
-from tools.adopt_merge import _merge_identity  # noqa: E402
-from tools.adopt_merge import _merge_pyproject  # noqa: E402
-from tools.adopt_merge import _merge_text_files  # noqa: E402
-from tools.adopt_merge import _MergeError  # noqa: E402
-from tools.adopt_merge import _note_runner_mismatch  # noqa: E402
-from tools.adopt_merge import _plan_ci_jobs  # noqa: E402
-from tools.adopt_merge import _plan_merges  # noqa: E402
-from tools.adopt_merge import merge_generated_files  # noqa: E402
-from tools.adopt_merge import plan_merges  # noqa: E402
-from tools.adopt_merge import render_fresh_source  # noqa: E402
-from tools.adopt_models import CONFIG_FILES  # noqa: E402
-from tools.adopt_models import CRASH_POINT_ENV  # noqa: E402
-from tools.adopt_models import JOURNAL_NAME  # noqa: E402
-from tools.adopt_models import AdoptError  # noqa: E402
-from tools.adopt_models import Adoption  # noqa: E402
-from tools.adopt_models import OwnershipError  # noqa: E402
-from tools.adopt_models import Recovery  # noqa: E402
-from tools.adopt_models import StaleJournalError  # noqa: E402
-from tools.adopt_models import _Run  # noqa: E402
-from tools.adopt_ref import _plan_data  # noqa: E402
-from tools.adopt_ref import _ref_question_files  # noqa: E402
-from tools.adopt_ref import _ref_questions  # noqa: E402
-from tools.adopt_ref import resolve_ref  # noqa: E402
-from tools.adopt_report import _merge_summary  # noqa: E402
-from tools.adopt_report import _merge_summary_from  # noqa: E402
-from tools.adopt_report import _render_outcome_lines  # noqa: E402
-from tools.adopt_report import merge_problem  # noqa: E402
-from tools.adopt_report import render_recovery  # noqa: E402
-from tools.adopt_report import render_report  # noqa: E402
-from tools.adopt_transaction import _apply_adoption_transaction  # noqa: E402
-from tools.adopt_transaction import _apply_dry_run_plan  # noqa: E402
-from tools.adopt_transaction import _check_adopt_preconditions  # noqa: E402
-from tools.adopt_transaction import _init_adoption  # noqa: E402
-from tools.adopt_transaction import adopt  # noqa: E402
-
-__all__ = [
-    "CONFIG_FILES",
-    "CRASH_POINT_ENV",
-    "JOURNAL_NAME",
-    "MERGE_KINDS",
-    "MERGE_TARGETS",
-    "TASK_APPEND_KINDS",
-    "_MERGE_QUESTION",
-    "AdoptError",
-    "Adoption",
-    "Confirmation",
-    "OwnershipError",
-    "Recovery",
-    "StaleJournalError",
-    "_Interrupted",
-    "_Journal",
-    "_MergeError",
-    "_Run",
-    "_apply_adoption_transaction",
-    "_apply_dry_run_plan",
-    "_ask_about_ci_jobs",
-    "_ask_about_task_files",
-    "_ask_about_values",
-    "_check_adopt_preconditions",
-    "_confirm_merges",
-    "_crash_at",
-    "_crash_on_write",
-    "_crash_writes",
-    "_dirs_under",
-    "_files_under",
-    "_finish_with_merges",
-    "_fsync_dir",
-    "_init_adoption",
-    "_is_write",
-    "_load_answers",
-    "_merge_ci_caller",
-    "_merge_identity",
-    "_merge_pyproject",
-    "_merge_summary",
-    "_merge_summary_from",
-    "_merge_text_files",
-    "_note_runner_mismatch",
-    "_parse_args",
-    "_parse_data",
-    "_plan_ci_jobs",
-    "_plan_data",
-    "_plan_merges",
-    "_plan_only",
-    "_prompter",
-    "_read_journal",
-    "_recover_from_cli",
-    "_ref_question_files",
-    "_ref_questions",
-    "_refuse_stale_journal",
-    "_remove_journal",
-    "_remove_new_dirs",
-    "_render_outcome_lines",
-    "_restore",
-    "_roll_back",
-    "_signals_roll_back",
-    "_snapshot",
-    "_under",
-    "_undo_run",
-    "_unlink_created_files",
-    "_verify",
-    "_write_bytes",
-    "_write_journal",
-    "adopt",
-    "journal_path",
-    "main",
-    "merge_generated_files",
-    "merge_problem",
-    "plan_merges",
-    "recover",
-    "render_fresh_source",
-    "render_recovery",
-    "render_report",
-    "resolve_ref",
-]
 
 if __name__ == "__main__":
     raise SystemExit(main())

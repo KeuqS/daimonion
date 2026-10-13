@@ -4,9 +4,9 @@ SIGINT/SIGTERM mid-run are turned into the ordinary rollback; SIGKILL and
 power loss cannot be caught at all, which is what the journal
 (`tools.adopt_journal`) is for. `COPIER_ADOPT_CRASH_AT` kills the process
 at a named point so the drills (and a manual crash rehearsal) exercise the
-recovery path for real. In-repo callers go through `fire_crash_hook` --
+recovery path for real. In-repo callers go through `crash_drill` --
 never `_crash_at` directly -- so a test fake installed at
-`tools.adopt._crash_at` fires wherever the real hook would.
+`tools.adopt_crash._crash_at` fires wherever the real hook would.
 
 This is a drivers-layer module by the tests/test_tool_layers.py table: it
 watches the real target tree for writes.
@@ -32,25 +32,17 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-# The crash-point env var. Defined here (not in adopt_models) so this lowest
+# The crash-point env var. Defined here (not in adopt_types) so this lowest
 # layer imports nothing in-repo: no import cycle is possible.
 _CRASH_POINT_ENV = "COPIER_ADOPT_CRASH_AT"
 
 
-# Test seam: `patch.setattr(adopt, "_crash_at", fake)` writes into the
-# *facade's* namespace (CPython never calls a module-level `__setattr__`,
-# so no mirror is possible). Resolve the fake off the facade at call time:
-# if the facade currently holds an override, it wins; otherwise `_crash_at`
-# below runs. Production path is unaffected.
-def fire_crash_hook(point: str) -> None:
-    """Invoke the installed crash hook (facade override wins, else real)."""
-    import sys
-
-    facade = sys.modules.get("tools.adopt")
-    hook = getattr(facade, "_crash_at", None) if facade is not None else None
-    if hook is not None and hook is not _crash_at:
-        hook(point)
-        return
+# Test seam: callers use this indirection (not `_crash_at` directly) so a
+# test that does `patch.setattr(tools.adopt_crash, "_crash_at", fake)`
+# installs the drill hook even into siblings that imported the wrapper by
+# name. Module-global lookup happens at call time, so the fake wins.
+def crash_drill(point: str) -> None:
+    """Run the crash drill at `point` (the installed hook, else `_crash_at`)."""
     _crash_at(point)
 
 
@@ -118,7 +110,7 @@ def _crash_at(point: str) -> None:
         os.kill(os.getpid(), signal.SIGKILL)
 
 
-def _crash_writes(phase: str) -> int | None:
+def _writes_until_crash(phase: str) -> int | None:
     """How many writes COPIER_ADOPT_CRASH_AT asks `phase` to die after."""
     name, _, count = os.environ.get(_CRASH_POINT_ENV, "").partition(":")
     if name != phase or not count.isdigit() or int(count) < 1:
@@ -133,7 +125,7 @@ def _is_write(mode: object, flags: object) -> bool:
     return isinstance(flags, int) and bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND))
 
 
-def _under(root: Path, path: str) -> bool:
+def _is_under(root: Path, path: str) -> bool:
     """Whether a write landed inside `root` (resolved: a tmp dir may be a symlink)."""
     try:
         return Path(path).resolve().is_relative_to(root)
@@ -152,7 +144,7 @@ def _crash_on_write(phase: str, target: Path) -> Generator[None]:
     `render:1` is therefore the instant after the first file was written, which
     is exactly the crash point a journal has to cover.
     """
-    wanted = _crash_writes(phase)
+    wanted = _writes_until_crash(phase)
     if wanted is None:
         yield
         return
@@ -165,11 +157,11 @@ def _crash_on_write(phase: str, target: Path) -> Generator[None]:
         if not active[0] or event != "open":
             return
         path, mode, flags = args
-        if not isinstance(path, str) or not _is_write(mode, flags) or not _under(root, path):
+        if not isinstance(path, str) or not _is_write(mode, flags) or not _is_under(root, path):
             return
         written.add(path)
         if len(written) > wanted:
-            fire_crash_hook(point)
+            crash_drill(point)
 
     sys.addaudithook(hook)
     try:

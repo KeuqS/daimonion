@@ -2,7 +2,7 @@
 
 `tools/gen_docs.py` renders the questionnaire-derived documentation; this
 module owns the mechanism: the marker pairs (`BEGIN`/`END`) that delimit
-each generated region, the `Target` catalogue (which renderer fills which
+each generated region, the `GeneratedBlock` catalogue (which renderer fills which
 region of which file), and the `check`/`write` pair the `--check`/`--write`
 CLI modes run on.
 
@@ -47,7 +47,7 @@ END = "<!-- END GENERATED: {name} -->"
 
 
 @dataclass(frozen=True)
-class Target:
+class GeneratedBlock:
     """One generated block: where it lives, its marker name and its renderer."""
 
     path: Path
@@ -78,7 +78,7 @@ class Target:
         return text
 
 
-def targets(support: Path = SUPPORT_YML) -> list[Target]:
+def generated_blocks(support: Path = SUPPORT_YML) -> list[GeneratedBlock]:
     """Every generated block, in file order.
 
     The catalogue blocks live in `docs/reference/features.md`, so the README
@@ -89,18 +89,18 @@ def targets(support: Path = SUPPORT_YML) -> list[Target]:
     from the cost ledger, not the questionnaire (TODO.md §28.6-D4).
     """
     blocks = [
-        Target(QUESTIONNAIRE_DOC, "project-types", render_project_types),
-        Target(QUESTIONNAIRE_DOC, "areas", render_areas),
-        Target(QUESTIONNAIRE_DOC, "detailed-questions", render_detailed_questions),
-        Target(QUESTIONNAIRE_DOC, "project-details", render_project_details),
-        Target(FEATURES_DOC, "features-areas", render_features_areas),
-        Target(FEATURES_DOC, "features-mermaid", _mermaid_block),
-        Target(FEATURES_DOC, "features-task-runner", render_features_task_runner),
-        Target(VERIFICATION_DOC, "tier-ledger", render_tier_ledger),
+        GeneratedBlock(QUESTIONNAIRE_DOC, "project-types", render_project_types),
+        GeneratedBlock(QUESTIONNAIRE_DOC, "areas", render_areas),
+        GeneratedBlock(QUESTIONNAIRE_DOC, "detailed-questions", render_detailed_questions),
+        GeneratedBlock(QUESTIONNAIRE_DOC, "project-details", render_project_details),
+        GeneratedBlock(FEATURES_DOC, "features-areas", render_features_areas),
+        GeneratedBlock(FEATURES_DOC, "features-mermaid", _mermaid_block),
+        GeneratedBlock(FEATURES_DOC, "features-task-runner", render_features_task_runner),
+        GeneratedBlock(VERIFICATION_DOC, "tier-ledger", render_tier_ledger),
     ]
     if support.is_file():
-        blocks.append(Target(FEATURES_DOC, "support-table", _support_block(support)))
-        blocks.append(Target(SUPPORT_DOC, "support-matrix", _support_doc_block(support)))
+        blocks.append(GeneratedBlock(FEATURES_DOC, "support-table", _support_block(support)))
+        blocks.append(GeneratedBlock(SUPPORT_DOC, "support-matrix", _support_doc_block(support)))
     return blocks
 
 
@@ -129,7 +129,7 @@ def _support_doc_block(support: Path) -> Callable[[Model], str]:
 
 def support_doc_text(support: Path = SUPPORT_YML) -> str:
     """The complete `docs/reference/support.md`, markers included."""
-    target = Target(SUPPORT_DOC, "support-matrix", _support_doc_block(support))
+    target = GeneratedBlock(SUPPORT_DOC, "support-matrix", _support_doc_block(support))
     return f"{target.begin()}\n{target.render_text(Model.load())}\n{target.end()}\n"
 
 
@@ -137,7 +137,7 @@ def _relative(path: Path) -> str:
     return str(path.relative_to(TOP)) if path.is_relative_to(TOP) else str(path)
 
 
-def _drift(target: Target, actual: str, expected: str) -> str:
+def _drift(target: GeneratedBlock, actual: str, expected: str) -> str:
     """Describe the first line where a committed block differs from the model."""
     committed = actual.splitlines()
     wanted = expected.splitlines()
@@ -152,7 +152,7 @@ def _drift(target: Target, actual: str, expected: str) -> str:
     return f"{_relative(target.path)}: {target.block} differs"
 
 
-def check(model: Model, blocks: list[Target]) -> list[str]:
+def check(model: Model, blocks: list[GeneratedBlock]) -> list[str]:
     """Return one problem per stale or missing generated block."""
     problems: list[str] = []
     for target in blocks:
@@ -166,7 +166,7 @@ def check(model: Model, blocks: list[Target]) -> list[str]:
     return problems
 
 
-def write(model: Model, blocks: list[Target]) -> list[str]:
+def write(model: Model, blocks: list[GeneratedBlock]) -> list[str]:
     """Replace every generated block; return the blocks that changed."""
     changed: list[str] = []
     for target in blocks:

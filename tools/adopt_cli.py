@@ -3,7 +3,7 @@
 `main` parses one invocation -- an adoption (planned first, then applied
 unless `--dry-run`), or a `--recover` that undoes an interrupted run --
 and maps the outcome onto the exit codes the module docstring promises.
-`_prompter` builds the confirmation callback only when somebody is there
+`_ask_callback` builds the confirmation callback only when somebody is there
 to answer it; anywhere else the automatic plan applies and says so.
 
 This is a drivers-layer module by the tests/test_tool_layers.py table: it
@@ -25,23 +25,24 @@ if str(TOP) not in sys.path:
 
 import yaml  # noqa: E402
 from tools.adopt_journal import recover  # noqa: E402
-from tools.adopt_models import AdoptError  # noqa: E402
-from tools.adopt_models import OwnershipError  # noqa: E402
-from tools.adopt_models import StaleJournalError  # noqa: E402
 from tools.adopt_report import render_recovery  # noqa: E402
 from tools.adopt_report import render_report  # noqa: E402
-from tools.adopt_transaction import adopt  # noqa: E402
+from tools.adopt_run import adopt  # noqa: E402
+from tools.adopt_types import AdoptError  # noqa: E402
+from tools.adopt_types import OwnershipError  # noqa: E402
+from tools.adopt_types import StaleJournalError  # noqa: E402
 
 
-def _parse_data(pairs: list[str] | None) -> dict[str, Any]:
-    data: dict[str, Any] = {}
+def _parse_data_flag(pairs: list[str] | None) -> dict[str, Any]:
+    """The `--data key=value` pairs as an answers dict; each value is YAML."""
+    answers: dict[str, Any] = {}
     for pair in pairs or []:
         if "=" not in pair:
             msg = f"--data expects key=value, got {pair!r}"
             raise AdoptError(msg)
         key, value = pair.split("=", 1)
-        data[key.strip()] = yaml.safe_load(value)
-    return data
+        answers[key.strip()] = yaml.safe_load(value)
+    return answers
 
 
 def _load_answers(path: Path | None) -> dict[str, Any]:
@@ -57,7 +58,7 @@ def _load_answers(path: Path | None) -> dict[str, Any]:
     return dict(loaded or {})
 
 
-def _prompter(args: argparse.Namespace) -> Callable[[str], str] | None:
+def _ask_callback(args: argparse.Namespace) -> Callable[[str], str] | None:
     """The confirmation prompt, or None when nobody is there to answer it.
 
     `--yes` (and any non-interactive run) applies the automatic plan: a tool
@@ -149,12 +150,12 @@ def main(argv: list[str] | None = None) -> int:
         adoption = adopt(
             args.path.resolve(),
             ref=args.ref,
-            answers={**_load_answers(args.answers), **_parse_data(args.data)},
+            answers={**_load_answers(args.answers), **_parse_data_flag(args.data)},
             skip=args.skip,
             takeover=args.takeover,
             dry_run=args.dry_run,
             merge_generated=not args.no_merge,
-            ask=_prompter(args),
+            ask=_ask_callback(args),
         )
     except StaleJournalError as exc:
         print(str(exc), file=sys.stderr)

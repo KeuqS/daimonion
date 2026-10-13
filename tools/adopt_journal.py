@@ -31,18 +31,18 @@ TOP = Path(__file__).resolve().parent.parent
 if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
-from tools.adopt_crash import fire_crash_hook  # noqa: E402
-from tools.adopt_files import _files_under  # noqa: E402
-from tools.adopt_files import _fsync_dir  # noqa: E402
-from tools.adopt_files import _remove_new_dirs  # noqa: E402
-from tools.adopt_files import _roll_back  # noqa: E402
-from tools.adopt_files import _write_bytes  # noqa: E402
-from tools.adopt_models import JOURNAL_NAME  # noqa: E402
-from tools.adopt_models import AdoptError  # noqa: E402
-from tools.adopt_models import Adoption  # noqa: E402
-from tools.adopt_models import Recovery  # noqa: E402
-from tools.adopt_models import StaleJournalError  # noqa: E402
-from tools.adopt_models import _Run  # noqa: E402
+from tools.adopt_crash import crash_drill  # noqa: E402
+from tools.adopt_tree import _files_under  # noqa: E402
+from tools.adopt_tree import _fsync_dir  # noqa: E402
+from tools.adopt_tree import _remove_new_dirs  # noqa: E402
+from tools.adopt_tree import _roll_back  # noqa: E402
+from tools.adopt_tree import _write_bytes  # noqa: E402
+from tools.adopt_types import JOURNAL_NAME  # noqa: E402
+from tools.adopt_types import AdoptError  # noqa: E402
+from tools.adopt_types import Adoption  # noqa: E402
+from tools.adopt_types import Recovery  # noqa: E402
+from tools.adopt_types import StaleJournalError  # noqa: E402
+from tools.adopt_types import _Run  # noqa: E402
 
 # --- the crash journal -------------------------------------------------------
 #
@@ -62,48 +62,49 @@ def journal_path(target: Path) -> Path:
 class _Journal:
     """What a killed run leaves behind for `--recover` to undo it with.
 
-    `old` is the old bytes of every file the run may modify, `existing` is
-    every file that was there before it started (so recovery can tell what the
-    run created) and `dirs` the directories (so recovery can remove the empty
-    ones it created). `may_create` is the plan itself, for the report.
+    `old_bytes` is the old bytes of every file the run may modify,
+    `preexisting_files` is every file that was there before it started (so
+    recovery can tell what the run created) and `preexisting_dirs` the
+    directories (so recovery can remove the empty ones it created).
+    `planned_creates` is the plan itself, for the report.
     """
 
     target: Path
     ref: str
-    started: str
-    may_create: list[str]
-    existing: list[str]
-    dirs: list[str]
-    old: dict[str, bytes]
+    started_at: str
+    planned_creates: list[str]
+    preexisting_files: list[str]
+    preexisting_dirs: list[str]
+    old_bytes: dict[str, bytes]
 
     def as_dict(self) -> dict[str, Any]:
         """Serializable form; the old bytes are base64 because they are not text."""
         return {
-            "version": 1,
+            "version": 2,
             "tool": "tools/adopt.py",
             "target": str(self.target),
             "ref": self.ref,
-            "started": self.started,
-            "may_create": self.may_create,
-            "existing": self.existing,
-            "dirs": self.dirs,
-            "old": {name: base64.b64encode(content).decode("ascii") for name, content in self.old.items()},
+            "started_at": self.started_at,
+            "planned_creates": self.planned_creates,
+            "preexisting_files": self.preexisting_files,
+            "preexisting_dirs": self.preexisting_dirs,
+            "old_bytes": {name: base64.b64encode(content).decode("ascii") for name, content in self.old_bytes.items()},
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> _Journal:
         """Rebuild a journal, refusing anything this version did not write."""
-        if data["version"] != 1:
-            msg = f"journal version {data['version']!r} is not version 1"
+        if data["version"] != 2:
+            msg = f"journal version {data['version']!r} is not version 2"
             raise ValueError(msg)
         return cls(
             target=Path(data["target"]),
             ref=str(data["ref"]),
-            started=str(data["started"]),
-            may_create=[str(name) for name in data["may_create"]],
-            existing=[str(name) for name in data["existing"]],
-            dirs=[str(name) for name in data["dirs"]],
-            old={str(name): base64.b64decode(content) for name, content in data["old"].items()},
+            started_at=str(data["started_at"]),
+            planned_creates=[str(name) for name in data["planned_creates"]],
+            preexisting_files=[str(name) for name in data["preexisting_files"]],
+            preexisting_dirs=[str(name) for name in data["preexisting_dirs"]],
+            old_bytes={str(name): base64.b64decode(content) for name, content in data["old_bytes"].items()},
         )
 
 
@@ -155,7 +156,7 @@ def _remove_journal(target: Path) -> None:
 def _restore(journal: _Journal) -> list[str]:
     """Write the recorded old bytes back; returns the files that had drifted."""
     restored: list[str] = []
-    for relative, content in journal.old.items():
+    for relative, content in journal.old_bytes.items():
         path = journal.target / relative
         if path.is_file() and path.read_bytes() == content:
             continue
@@ -166,13 +167,13 @@ def _restore(journal: _Journal) -> list[str]:
         # journal itself is untouched -- the next `--recover` reads the same
         # journal and converges, because every write is decided by what the
         # tree holds now, not by how far a previous one got.
-        fire_crash_hook("recover")
+        crash_drill("recover")
     return sorted(restored)
 
 
 def _unlink_created_files(target: Path, journal: _Journal) -> list[str]:
     """Delete files and directories created during the run, crashing safely at checkpoints."""
-    removed = sorted(_files_under(target) - set(journal.existing) - {JOURNAL_NAME})
+    removed = sorted(_files_under(target) - set(journal.preexisting_files) - {JOURNAL_NAME})
     for relative in removed:
         (target / relative).unlink()
         # Crash point: a recovery killed while it deletes what the run created.
@@ -180,8 +181,8 @@ def _unlink_created_files(target: Path, journal: _Journal) -> list[str]:
         # of the run's own files, and the journal (dropped last) still names
         # the ones this kill got to keep: the next `--recover` removes exactly
         # the rest and no second time.
-        fire_crash_hook("recover")
-    _remove_new_dirs(target, set(journal.dirs))
+        crash_drill("recover")
+    _remove_new_dirs(target, set(journal.preexisting_dirs))
     return removed
 
 
@@ -213,7 +214,7 @@ def recover(target: Path) -> Recovery:
         restored=restored,
         removed=removed,
     )
-    unplanned = [name for name in removed if name not in set(journal.may_create)]
+    unplanned = [name for name in removed if name not in set(journal.planned_creates)]
     if unplanned:
         recovery.notes.append(
             f"removed {len(unplanned)} path(s) the plan did not name (e.g. {unplanned[0]}): the render "
@@ -246,8 +247,8 @@ def _undo_run(run: _Run, adoption: Adoption, problem: str | None, note: str) -> 
     started) instead of remembered: that is the rule `--recover` applies, so a
     kill between any two writes is undone by the same code.
     """
-    created = sorted(_files_under(run.target) - run.existing - {JOURNAL_NAME})
-    adoption.restored, adoption.removed = _roll_back(run.target, run.backup, created, run.before_dirs)
+    created = sorted(_files_under(run.target) - run.preexisting_files - {JOURNAL_NAME})
+    adoption.restored, adoption.removed = _roll_back(run.target, run.backup, created, run.preexisting_dirs)
     _remove_journal(run.target)
     adoption.ok = False
     adoption.applied = False

@@ -37,25 +37,25 @@ from tools.adopt_confirm import _plan_only  # noqa: E402
 from tools.adopt_crash import _crash_on_write  # noqa: E402
 from tools.adopt_crash import _Interrupted  # noqa: E402
 from tools.adopt_crash import _signals_roll_back  # noqa: E402
-from tools.adopt_crash import fire_crash_hook  # noqa: E402
-from tools.adopt_files import _dirs_under  # noqa: E402
-from tools.adopt_files import _files_under  # noqa: E402
-from tools.adopt_files import _snapshot  # noqa: E402
-from tools.adopt_files import _verify  # noqa: E402
+from tools.adopt_crash import crash_drill  # noqa: E402
 from tools.adopt_journal import _Journal  # noqa: E402
 from tools.adopt_journal import _refuse_stale_journal  # noqa: E402
 from tools.adopt_journal import _remove_journal  # noqa: E402
 from tools.adopt_journal import _undo_run  # noqa: E402
 from tools.adopt_journal import _write_journal  # noqa: E402
 from tools.adopt_merge import MERGE_TARGETS  # noqa: E402
-from tools.adopt_models import JOURNAL_NAME  # noqa: E402
-from tools.adopt_models import AdoptError  # noqa: E402
-from tools.adopt_models import Adoption  # noqa: E402
-from tools.adopt_models import OwnershipError  # noqa: E402
-from tools.adopt_models import _Run  # noqa: E402
-from tools.adopt_models import top  # noqa: E402
-from tools.adopt_ref import _plan_data  # noqa: E402
-from tools.adopt_ref import resolve_ref  # noqa: E402
+from tools.adopt_revision import _plan_answers  # noqa: E402
+from tools.adopt_revision import resolve_ref  # noqa: E402
+from tools.adopt_tree import _dirs_under  # noqa: E402
+from tools.adopt_tree import _files_under  # noqa: E402
+from tools.adopt_tree import _snapshot  # noqa: E402
+from tools.adopt_tree import _verify  # noqa: E402
+from tools.adopt_types import JOURNAL_NAME  # noqa: E402
+from tools.adopt_types import AdoptError  # noqa: E402
+from tools.adopt_types import Adoption  # noqa: E402
+from tools.adopt_types import OwnershipError  # noqa: E402
+from tools.adopt_types import _Run  # noqa: E402
+from tools.adopt_types import repo_root  # noqa: E402
 
 
 def _check_adopt_preconditions(target: Path, detection: detect.Detection) -> None:
@@ -95,18 +95,18 @@ def _init_adoption(
 
 def _apply_dry_run_plan(
     target: Path,
-    data: dict[str, Any],
+    answers: dict[str, Any],
     adoption: Adoption,
     detection: detect.Detection,
     *,
     merge_generated: bool,
 ) -> Adoption:
     """Calculate the dry-run plan without writing anything to disk."""
-    _plan_only(target, data, adoption.ref, adoption, detection)
+    _plan_only(target, answers, adoption.ref, adoption, detection)
     if not merge_generated:
-        adoption.deps = None
-        adoption.tool_config = None
-        adoption.files_merged = []
+        adoption.merged_dependencies = None
+        adoption.merged_tool_config = None
+        adoption.merged_files = []
     return adoption
 
 
@@ -125,15 +125,15 @@ def _apply_adoption_transaction(
             _write_journal(target, journal)
             with _crash_on_write("render", target), batch.report_stream_only():
                 batch.render(
-                    str(top()),
+                    str(repo_root()),
                     target,
-                    run.data,
+                    run.answers,
                     run.ref,
                     skip_if_exists=tuple(adoption.skip),
                     overwrite=False,
                 )
-            fire_crash_hook("verify")
-            changed, removed, created = _verify(target, run.backup, run.existing | {JOURNAL_NAME})
+            crash_drill("verify")
+            changed, removed, created = _verify(target, run.backup, run.preexisting_files | {JOURNAL_NAME})
             if changed or removed:
                 problem = f"the render modified existing files ({', '.join([*changed, *removed][:5])})"
                 _undo_run(run, adoption, problem, "rolled back: the project is unchanged")
@@ -173,21 +173,28 @@ def adopt(  # noqa: PLR0913  WHYNOT: the keyword-only options are the operation'
     _check_adopt_preconditions(target, detection)
     resolved_ref, reason = resolve_ref(ref)
     adoption = _init_adoption(target, detection, resolved_ref, reason, skip)
-    data = _plan_data(detection, answers or {})
+    planned_answers = _plan_answers(detection, answers or {})
     if dry_run:
-        return _apply_dry_run_plan(target, data, adoption, detection, merge_generated=merge_generated)
+        return _apply_dry_run_plan(target, planned_answers, adoption, detection, merge_generated=merge_generated)
 
     backup = _snapshot(target, sorted({*detection.kept, *detection.collisions, *MERGE_TARGETS}))
-    before = _files_under(target)
-    before_dirs = _dirs_under(target)
+    preexisting_files = _files_under(target)
+    preexisting_dirs = _dirs_under(target)
     journal = _Journal(
         target=target,
         ref=resolved_ref,
-        started=datetime.now(UTC).isoformat(timespec="seconds"),
-        may_create=sorted({*detection.added, f".github/workflows/{file_merge.CI_CALLER_NAME}"}),
-        existing=sorted(before),
-        dirs=sorted(before_dirs),
-        old=backup,
+        started_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        planned_creates=sorted({*detection.added, f".github/workflows/{file_merge.CI_CALLER_NAME}"}),
+        preexisting_files=sorted(preexisting_files),
+        preexisting_dirs=sorted(preexisting_dirs),
+        old_bytes=backup,
     )
-    run = _Run(target=target, backup=backup, data=data, ref=resolved_ref, existing=before, before_dirs=before_dirs)
+    run = _Run(
+        target=target,
+        backup=backup,
+        answers=planned_answers,
+        ref=resolved_ref,
+        preexisting_files=preexisting_files,
+        preexisting_dirs=preexisting_dirs,
+    )
     return _apply_adoption_transaction(run, journal, adoption, merge_generated=merge_generated, ask=ask)

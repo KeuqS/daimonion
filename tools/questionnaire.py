@@ -44,7 +44,7 @@ DOCUMENT_SPLIT = re.compile(r"(?m)^---\s*$")
 INCLUDE_LINE = re.compile(r"^\s*!include\s+(\S+)\s*$")
 # A question-name line in copier.yml / questions/*.yml: a top-level key with
 # no value. MULTILINE, so it also finds the names in `git show` output
-# (tools/adopt.py's ref scan reads it from there).
+# (tools/adopt_revision.py's ref scan reads it from there).
 QUESTION_LINE = re.compile(r"^([a-z][a-z0-9_]*):\s*$", re.MULTILINE)
 
 #: The `use_recommended_*` gate questions' prefix (the leaf space, the

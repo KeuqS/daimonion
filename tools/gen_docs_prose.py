@@ -5,14 +5,14 @@ module is the prose half of the reading: the first-sentence / prompt /
 recommendation lifts out of each question's help string, the `when`
 expression rendered as prose (parsed from when_model's token stream, so the
 match is by meaning, not spelling), and the small text helpers (`_wrap`,
-`_es`, `_br`, `_clip`) the markdown and mermaid renderers share.
+`_escape_label`, `_break_label`, `_clip`) the markdown and mermaid renderers share.
 
 This is a machinery-layer module by the tests/test_tool_layers.py table:
 questionnaire data in, markdown/mermaid text out -- no template tree, no
 subprocess.
 """
 
-# WHYNOT: leaf sibling of the gen_docs split; `_wrap`/`_es`/`_br`/`_clip`
+# WHYNOT: leaf sibling of the gen_docs split; `_wrap`/`_escape_label`/`_break_label`/`_clip`
 # and the prose helpers are shared with the markdown and mermaid
 # siblings, so imported private names read as unused locally.
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false
@@ -110,7 +110,7 @@ def choice_help(question: Question) -> dict[str, str]:
     return found
 
 
-def condition(question: Question) -> str:
+def condition_prose(question: Question) -> str:
     """The `when` condition in prose, or `all` when the question always runs.
 
     Rendered from the parsed expression -- when_model owns the tokenizer -- so
@@ -278,7 +278,7 @@ def _wrap(text: str, prefix: str = "", continuation: str = "  ", width: int = 10
     return lines
 
 
-def _es(text: str) -> str:
+def _escape_label(text: str) -> str:
     """Escape text for a quoted mermaid node label.
 
     Mermaid labels are plain text, not markdown, so code backticks are
@@ -288,9 +288,9 @@ def _es(text: str) -> str:
     return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _br(parts: list[str], width: int = 64) -> str:
+def _break_label(parts: list[str], width: int = 64) -> str:
     """Join `parts` with `, ` and wrap into mermaid `<br/>`-separated lines."""
-    return "<br/>".join(_es(line) for line in _wrap(", ".join(parts), width=width, continuation=""))
+    return "<br/>".join(_escape_label(line) for line in _wrap(", ".join(parts), width=width, continuation=""))
 
 
 def _clip(text: str, limit: int = 96, *, prefer_paren: bool = False) -> str:
@@ -315,8 +315,8 @@ def _short_gate_label(model: Model, gate: Question, *, yes: bool) -> str:
     """A gate's Yes (recommended) or No (declined) branch label."""
     if yes:
         text = recommended(gate).removeprefix("yes — ").removeprefix("yes - ")
-        return _es(_clip(text, 84, prefer_paren=True))
+        return _escape_label(_clip(text, 84, prefer_paren=True))
     details = model.details(gate)
     if details:
-        return _br([f"ask: {', '.join(q.name for q in details)}"], 76)
-    return _es(_clip(declined(gate), 84))
+        return _break_label([f"ask: {', '.join(q.name for q in details)}"], 76)
+    return _escape_label(_clip(declined(gate), 84))

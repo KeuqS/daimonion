@@ -36,17 +36,17 @@ if str(TOP) not in sys.path:
 from tools import batch  # noqa: E402
 from tools import file_merge  # noqa: E402
 from tools import pyproject_merge  # noqa: E402
-from tools.adopt_models import Adoption  # noqa: E402
-from tools.adopt_models import _Run  # noqa: E402
-from tools.adopt_models import top  # noqa: E402
 from tools.adopt_report import merge_problem  # noqa: E402
+from tools.adopt_types import Adoption  # noqa: E402
+from tools.adopt_types import _Run  # noqa: E402
+from tools.adopt_types import repo_root  # noqa: E402
 
 # --- the merge step ----------------------------------------------------------
 #
 # This is the transaction's write phase. It records old bytes into the same
 # `_Run.backup` dict the journal covers and the rollback restores, and its
 # `_MergeError` is a rollback trigger -- so the layering runs one way through
-# `tools/adopt_models.py`: this module borrows `_Run` and `Adoption` from
+# `tools/adopt_types.py`: this module borrows `_Run` and `Adoption` from
 # there, the journal borrows them too, and nothing borrows back. The merge
 # plan side (`plan_merges`, `_plan_merges`) and the read-only verdict
 # (`merge_problem`, in `tools/adopt_report.py`) stay callable without a run.
@@ -68,7 +68,7 @@ MERGE_KINDS = {
 MERGE_TARGETS = ("pyproject.toml", ".github/workflows/ci.yml", *MERGE_KINDS)
 
 
-def plan_merges(target: Path, data: dict[str, Any], ref: str) -> dict[str, Any]:
+def plan_merges(target: Path, answers: dict[str, Any], ref: str) -> dict[str, Any]:
     """Compute every merge without writing, for a dry run.
 
     Renders the fresh scaffold it plans against and removes it afterwards. A
@@ -76,20 +76,20 @@ def plan_merges(target: Path, data: dict[str, Any], ref: str) -> dict[str, Any]:
     one and the plan and the application share it) plans with `_plan_merges`
     instead of paying for a second render of the same answers.
     """
-    source = render_fresh_source(data, ref)
+    source = render_fresh_source(answers, ref)
     try:
-        return _plan_merges(target, data, source)
+        return _plan_merges(target, answers, source)
     finally:
         shutil.rmtree(source, ignore_errors=True)
 
 
-def _plan_merges(target: Path, data: dict[str, Any], source: Path) -> dict[str, Any]:
+def _plan_merges(target: Path, answers: dict[str, Any], source: Path) -> dict[str, Any]:
     """The merge plan, computed against an already-rendered fresh scaffold."""
     dependencies = pyproject_merge.merge_dependencies(target / "pyproject.toml", source / "pyproject.toml", apply=False)
     config = pyproject_merge.merge_tool_config(
         target / "pyproject.toml",
         source / "pyproject.toml",
-        identity=_merge_identity(data, source),
+        identity=_merge_identity(answers, source),
         apply=False,
     )
     files = [
@@ -100,10 +100,14 @@ def _plan_merges(target: Path, data: dict[str, Any], source: Path) -> dict[str, 
     ci_plan = _plan_ci_jobs(target, source)
     if ci_plan is not None:
         files.append(ci_plan)
-    return {"dependencies": dependencies.as_dict(), "tool_config": config.as_dict(), "files": files}
+    return {
+        "merged_dependencies": dependencies.as_dict(),
+        "merged_tool_config": config.as_dict(),
+        "merged_files": files,
+    }
 
 
-def render_fresh_source(data: dict[str, Any], ref: str) -> Path:
+def render_fresh_source(answers: dict[str, Any], ref: str) -> Path:
     """Render a *fresh* project into a temp dir and return where it landed.
 
     In adopt mode the template does not render the protected files at all, so
@@ -111,16 +115,16 @@ def render_fresh_source(data: dict[str, Any], ref: str) -> Path:
     scaffold. The caller owns the returned directory's lifetime.
     """
     directory = Path(tempfile.mkdtemp(prefix="adopt-merge-"))
-    fresh = {**data, "existing_project": False, "adopt_protect": []}
+    fresh = {**answers, "existing_project": False, "adopt_protect": []}
     with batch.report_stream_only():
-        batch.render(str(top()), directory, fresh, ref)
+        batch.render(str(repo_root()), directory, fresh, ref)
     return directory
 
 
-def _merge_identity(data: dict[str, Any], source: Path) -> tuple[str, ...]:
+def _merge_identity(answers: dict[str, Any], source: Path) -> tuple[str, ...]:
     """Tokens that mark a value as *this project's*, not a tool preference."""
     tokens = {
-        str(data.get(key, ""))
+        str(answers.get(key, ""))
         for key in ("package_name", "repo_name", "distribution_name", "github_org", "gitlab_group")
     }
     if (source / "pyproject.toml").is_file():
@@ -136,15 +140,15 @@ def _merge_pyproject(run: _Run, adoption: Adoption, source: Path, approved: froz
         target_pyproject.read_bytes() if target_pyproject.is_file() else None
     )
     merged = pyproject_merge.merge_dependencies(target_pyproject, source / "pyproject.toml")
-    adoption.deps = merged.as_dict()
+    adoption.merged_dependencies = merged.as_dict()
     adoption.notes.extend(merged.notes)
     config = pyproject_merge.merge_tool_config(
         target_pyproject,
         source / "pyproject.toml",
-        identity=_merge_identity(run.data, source),
+        identity=_merge_identity(run.answers, source),
         approved=approved,
     )
-    adoption.tool_config = config.as_dict()
+    adoption.merged_tool_config = config.as_dict()
     adoption.notes.extend(config.notes)
     problem = merge_problem(target_pyproject, before_pyproject)
     if problem:
@@ -170,7 +174,7 @@ def merge_generated_files(
     """
     owned = source is None
     if source is None:
-        source = render_fresh_source(run.data, run.ref)
+        source = render_fresh_source(run.answers, run.ref)
     try:
         _merge_pyproject(run, adoption, source, approved)
         _merge_text_files(run, adoption, source, approved_files=approved_files)
@@ -194,7 +198,7 @@ def _merge_text_files(
             continue
         before = run.backup.setdefault(name, target_file.read_bytes())
         result = file_merge.merge_text_file(target_file, source / name, kind, append=name in approved_files)
-        adoption.files_merged.append(result.as_dict())
+        adoption.merged_files.append(result.as_dict())
         adoption.notes.extend(result.notes)
         if result.applied and not file_merge.original_is_preserved(before, target_file.read_bytes()):
             msg = f"merging {name} rewrote existing content"
@@ -212,7 +216,7 @@ def _note_runner_mismatch(run: _Run, adoption: Adoption, source: Path) -> None:
             rendered = ", ".join(sorted(candidate for candidate in runners if (source / candidate).is_file()))
             adoption.notes.append(
                 f"your {name} was kept, but these answers render {rendered or 'no task runner'}; "
-                f"re-run with --data task_runner=<runner> for that runner's entries"
+                f"re-run with --answers task_runner=<runner> for that runner's entries"
             )
 
 
@@ -233,7 +237,7 @@ def _merge_ci_caller(
     if "ci.yml" in approved_files and source_ci.is_file():
         before = run.backup.setdefault(".github/workflows/ci.yml", target_ci.read_bytes())
         result = file_merge.merge_ci_jobs(target_ci, source_ci, append=True)
-        adoption.files_merged.append(result.as_dict())
+        adoption.merged_files.append(result.as_dict())
         adoption.notes.extend(result.notes)
         if result.applied:
             if not file_merge.original_is_preserved(before, target_ci.read_bytes()):
@@ -244,7 +248,7 @@ def _merge_ci_caller(
             return  # nothing was missing: their workflow already carries the checks
         adoption.notes.append("your ci.yml could not take the jobs; copier-ci.yml was added alongside instead")
     result = file_merge.merge_ci_caller(run.target, source_ci)
-    adoption.files_merged.append(result.as_dict())
+    adoption.merged_files.append(result.as_dict())
     adoption.notes.extend(result.notes)
 
 

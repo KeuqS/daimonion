@@ -23,8 +23,8 @@ if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
 from tools import pyproject_merge  # noqa: E402
-from tools.adopt_models import Adoption  # noqa: E402
-from tools.adopt_models import Recovery  # noqa: E402
+from tools.adopt_types import Adoption  # noqa: E402
+from tools.adopt_types import Recovery  # noqa: E402
 
 
 def merge_problem(target_pyproject: Path, before: bytes | None) -> str | None:
@@ -110,17 +110,17 @@ def _merge_summary_from(plan: dict[str, Any]) -> list[str]:
     describing two different merges.
     """
     lines: list[str] = []
-    dependencies = plan.get("dependencies") or {}
+    dependencies = plan.get("merged_dependencies") or {}
     if dependencies.get("added"):
         added = [f"{section}: {', '.join(names)}" for section, names in dependencies["added"].items()]
         lines.append(f"pyproject.toml dependencies -> {'; '.join(added)}")
-    config = plan.get("tool_config") or {}
+    config = plan.get("merged_tool_config") or {}
     if config.get("added"):
         tables = sorted(config["added"])
         shown = ", ".join(f"[{table}]" for table in tables[:3])
         more = f" and {len(tables) - 3} more" if len(tables) > 3 else ""
         lines.append(f"pyproject.toml tool config -> {len(tables)} table(s): {shown}{more}")
-    for entry in plan.get("files", []):
+    for entry in plan.get("merged_files", []):
         detail = ", ".join(entry.get("added", [])[:6]) + ("..." if len(entry.get("added", [])) > 6 else "")
         if detail:
             lines.append(f"{Path(entry['path']).name} -> {detail}")
@@ -139,7 +139,11 @@ def _merge_summary(adoption: Adoption) -> list[str]:
     the adapter is the whole difference.
     """
     return _merge_summary_from(
-        {"dependencies": adoption.deps, "tool_config": adoption.tool_config, "files": adoption.files_merged}
+        {
+            "merged_dependencies": adoption.merged_dependencies,
+            "merged_tool_config": adoption.merged_tool_config,
+            "merged_files": adoption.merged_files,
+        }
     )
 
 

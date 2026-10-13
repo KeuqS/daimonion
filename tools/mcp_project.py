@@ -25,7 +25,8 @@ if str(TOP) not in sys.path:
     sys.path.insert(0, str(TOP))
 
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
-from tools import adopt  # noqa: E402
+from tools import adopt_run  # noqa: E402
+from tools import adopt_types  # noqa: E402
 from tools import batch  # noqa: E402
 from tools import detect  # noqa: E402
 from tools import ethics  # noqa: E402
@@ -39,23 +40,23 @@ def run_adoption(
     *,
     dry_run: bool,
     merge: bool,
-) -> adopt.Adoption:
-    """Execute adopt.adopt wrapped in stream isolation and tool error conversion."""
+) -> adopt_types.Adoption:
+    """Execute the adoption transaction wrapped in stream isolation and tool error conversion."""
     if not target_dir.is_dir():
         msg = f"not a directory: {target_dir}"
         raise ToolError(msg)
     try:
         with batch.report_stream_only():
-            return adopt.adopt(
+            return adopt_run.adopt(
                 target_dir,
                 ref=ref,
                 answers=answers or {},
                 dry_run=dry_run,
                 merge_generated=merge,
             )
-    except adopt.OwnershipError as exc:
+    except adopt_types.OwnershipError as exc:
         raise ToolError(str(exc)) from exc
-    except (adopt.AdoptError, OSError) as exc:
+    except (adopt_types.AdoptError, OSError) as exc:
         raise ToolError(str(exc)) from exc
 
 
@@ -152,21 +153,21 @@ def register_project(server: Any) -> None:
         """Adopt the template into an existing project, transactionally.
 
         Returns `ok`, `applied`, `created_count`, `skip` (existing files left
-        alone), `ref` and `ref_reason`, the added `deps`, the `tool_config` merge
-        and `error` when the run was rolled back.
+        alone), `ref` and `ref_reason`, the added `merged_dependencies`, the
+        `merged_tool_config` merge and `error` when the run was rolled back.
 
         `dry_run=True` (the default) only plans: nothing is written, and the
         result reports which existing files would be left alone (`skip`), which
         revision would be expanded (`ref`, `ref_reason`), what would be added, and
-        which dependencies `deps` would add to the project's pyproject.toml. Call
+        which dependencies `merged_dependencies` would add to the project's pyproject.toml. Call
         it first.
 
         `merge` (default true) adds what the template generated to the files the
         project already has, always additively: dependencies and `[tool.*]` keys
         in pyproject.toml (an existing value is never rewritten — a difference
-        lands in `deps.differing` / `tool_config.kept`, and a value that names
+        lands in `merged_dependencies.differing` / `merged_tool_config.kept`, and a value that names
         *this* project, like `src/<pkg>`, is reported in
-        `tool_config.needs_your_value` instead of copied), missing `.gitignore`
+        `merged_tool_config.needs_your_value` instead of copied), missing `.gitignore`
         patterns, missing Makefile/justfile recipes, and the template's
         read-only CI as a second `copier-ci.yml` when `ci.yml` is taken. Pass
         false to touch nothing but the render.

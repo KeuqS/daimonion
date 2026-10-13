@@ -104,13 +104,13 @@ LAYERS: dict[str, tuple[str, frozenset[str]]] = {
                 "adopt_cli",
                 "adopt_confirm",
                 "adopt_crash",
-                "adopt_files",
                 "adopt_journal",
                 "adopt_merge",
-                "adopt_models",
-                "adopt_ref",
                 "adopt_report",
-                "adopt_transaction",
+                "adopt_revision",
+                "adopt_run",
+                "adopt_tree",
+                "adopt_types",
                 "answers_for",
                 "batch",
                 "detect",
@@ -261,12 +261,15 @@ def test_no_tool_module_imports_from_a_higher_layer() -> None:
     rank = _rank()
     edges = {module: _tool_imports(path, set(placement)) for module, path in _tools_modules().items()}
     undeclared = [
-        (module, target) for module, targets in edges.items() for target in sorted(targets) if target not in placement
+        (module, target)
+        for module, generated_blocks in edges.items()
+        for target in sorted(generated_blocks)
+        if target not in placement
     ]
     upward = [
         f"tools/{module}.py ({placement[module]}) imports tools/{target}.py ({placement[target]}, above it)"
-        for module, targets in edges.items()
-        for target in sorted(targets)
+        for module, generated_blocks in edges.items()
+        for target in sorted(generated_blocks)
         if target in placement
         and rank[placement[target]] > rank[placement[module]]
         and (module, target) not in ALLOWED_UPWARD_IMPORTS

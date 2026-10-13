@@ -70,6 +70,9 @@
 - §40 レビュー改善点 → このファイル。**開放中の 3 件は全て人間作業**
   (secrets 再設定・private repo 分離・upstream PR 投稿)
 - §43 再評価 → このファイル。設計判断の維持基準(閾値条件付き)
+- §49 次期改善候補 → このファイル。2026-10-13 レビュー。法務レイヤー不整合
+  (legal-check 未実装・law-lint ルール drift・law-map 孤児 checks)、
+  law-lint 強化、§36 S5 / §29 region 昇格の着手条件充足など
 
 ### B. アーカイブ側の残り(28 件 + 各着地記録。原文は archive)
 
@@ -657,3 +660,93 @@ AI エージェントのコンテキストウィンドウ圧迫と過剰反応�
     （test-fast 1161 件全緑）
 - **副次効果**: 「秘密情報検知が二重に停止中」だった状態のうち gitleaks 側が復旧。
   残る人間作業は `PYPI_API_TOKEN` のみ（HUMAN_TODO 更新済み）。
+
+
+## §49 検討: 次期改善候補（2026-10-13 レビュー）
+
+既存節・HUMAN_TODO と重複しない、実態確認済みのギャップと、着手条件を満たした
+保留節。優先順。人間判断待ちは §35（deploy_target）・§5（MCP 本番運用、
+web_api Docker 拡充と一体設計）・HUMAN_TODO（PYPI_API_TOKEN、private repo
+分離、upstream F1–F7 投稿、push protection 再有効化）に既載のため割愛。
+
+### A. 法務レイヤーの不整合（実害優先）
+
+- [x] ~~**`legal-check` タスク未実装**~~ → **訂正（2026-10-13）**: `_tasks.jinja`
+      L120 の `quality_tasks` に実装済み（`agents_md_effective` ゲート、
+      `uvx ... law-lint diff --strict`）。grep が `template/` 配下のみを
+      見た調査ミス。実ギャップは **AGENTS.md コマンド表への漏れ**:
+      表は `agent_cmd_specs` から生成され `legal-check` が未登録のため
+- [x] **完了: daimonion `legal-check` コマンド表登録** ✅ **2026-10-13 本 wave**
+      （E1: `_tasks.jinja` の `agent_cmd_specs` に登録 + `tests/test_example_docs_ci.py`
+      に 8 テスト追加 — 全 Taskfile に出ることと AGENTS.md 記載を `copy_project`
+      レンダで検証；`audit`/`license-check` と同じネットワーク依存 one-off として
+      表では inline spec なし）
+- [x] **完了: law-lint `DEFAULT_RULES` と REGISTRY triggers の drift 防止** ✅ **2026-10-13 本 wave**
+      （law-lint 側に `tools/check_ethics_parity.py` + 週次 `ethics-parity.yml`
+      を新設 — REGISTRY active 12 行と `law-lint/rules.py` 組込みルールを
+      12 対 12 でマップし、各ファイルの Triggers 正規表現と law-lint ルールの
+      正規表現間でキーワード/プローブが相互にヒットすることを検証。
+      `law-lint_linter/format/report.py` 直下のレポート経路は触れていないので
+      本節の承諾経路とは独立）
+- [x] ~~**law-map 未参照 checks 5 本の整理**~~ → **誤検出（2026-10-13）**:
+      13 本全て check_refs で参照済み（例: `llm-tool-allowlist-gate` は
+      `ai/llm-appsec-baseline` が参照。`grep -A3` で同一ファイル内のみを
+      見た誤り）。対応不要
+- [x] **完了: spec-less obligation 6 件 → 5 件 spec + contest-rules は L0 維持** ✅ **2026-10-13 本 wave**
+      （E4+E5: `checks/ai/{ml-bias-mitigation,samd-clinical-evaluation}.yml`
+      と `checks/privacy/european-accessibility-act.yml` +
+      `checks/security/{prompt-injection-defense,public-ntp-hygiene}.yml` の
+      5 本の L1 spec を新設し、各 obligation の `enforcement.level` を L0→L1 に
+      引き上げて `check_refs:` を付与。`contest-rules` は venue 固有の規約確認が
+      必須でコード検査の排水口がなく L0 維持を明記。`validate --warnings` の
+      spec-less 警告は 6→1 に縮退、`law-map validate` は 0 errors, 84 passed）
+
+### B. law-lint 強化
+
+- [x] **完了: 機械可読出力** ✅ **2026-10-13 本 wave**（E2:
+      `--format {human,json,sarif}` を `check|diff` に、human/json を
+      `list-rules` に追加。JSON: `{summary:{findings,rules_matched,strict_fail}, findings:[...]}`、
+      SARIF 2.1.0: `tool.driver.rules[]` + `results[]`、L2→error/L1→warning/L0→note。
+      `--strict` の exit code 1/0 は書式によらず同一）
+- [x] **完了: `.pre-commit-hooks.yaml` + 薄い GitHub Action** ✅ **2026-10-13 本 wave**（E3 一部:
+      `.pre-commit-hooks.yaml` に `law-lint --strict diff --staged`（`pass_filenames:false`）、
+      `action.yml` composite（`strict=true|args=diff`、SHA pin の `setup-uv` + `uvx`））
+- [x] **完了: テスト拡充** ✅ **2026-10-13 本 wave**（E2: `context.py` の gate
+      フォールバックを fail-closed（UserWarning 付き）に変更 + `tests/test_context.py`
+      全ゲート通過/空白/不正構文/不束縛変数の境界テスト、`tests/test_cli.py` の
+      `prepare --write`→`check` 自動読込/`--strict`/`--format`/`diff` 非
+      git ディレクトリ/バイナリ・権限エラー時の抑止テスト。計 55 件全緑）
+- [ ] **law-map checks spec への `triggers:` 接続**: spec に regex フィールドを
+      足せば law-lint が law-map checkout を `--rules` で直接消費でき、
+      obligation → check spec → lint trigger → AGENTS.md 節のパイプラインが
+      閉じる（§41-A1 の open-law 連携と同型）
+
+### C. daimonion 本体
+
+- [ ] **§36 S5: invariants/layers の導出化**（着手条件充足）: 質問票から
+      `invariants.yml` 手書き行を生成。S1（task regen）・S2（blast-radius 表 +
+      docs-only lint 常時化）・S3・S4 は着地済み、残る手動結合はここ。
+      「大きなリファクタ」と節内に明記 — 計画立ててから
+- [ ] **§29 region 節の昇格再判断**: 「3 件目の地域セクションが集まったら
+      昇格を再検討」の条件に対し region 節は現行 4 件（eu-cra / eu-eaa /
+      jp-external-transmission / kyushu-ntp）。条件充足の確認と、昇格 or
+      保留継続の判断を記録するだけでも可
+- [ ] **アーカイブ残 28 件の仕分け**: §B 索引は人間作業中心だが「library 空依存
+      の質問化（§17 L1058）」「render_project 戻り値・手書きテスト棚卸し
+      （§23 L1841–1910）」「setup composite 化・未検証組合せ（§19 L1328–1348）」
+      等エージェント可のものが混在。節ごとに agent-doable / human-only を
+      付けて索引を更新
+
+### D. エコシステム横断
+
+- [ ] **codex 逆方向 6 節の `related_sections` 配線確認**: `law-map validate
+      --codex` が報告する obligation 未接続節（contest-rules / ml-bias /
+      prompt-injection / region-eu-eaa / kyushu-ntp / samd）のうち 4 件は
+      §44 で obligation 追加済みのはず — 逆リンク未配線なら接続で警告解消
+- [ ] **open-law key-free 法域 adapter 追加**: `docs/explanations/
+      asia-coverage.md` 起点。KR は key-gated、US 州法は §41 で charter 上
+      blocked 決着済み。残る key-free 法域は独立タスクとして good first
+      issue 型に適合
+- [ ] **daimonion 未コミット差分の処理判断**: `tools/adopt*.py` 系 + テスト
+      28 ファイル（+442/-627）の adopt 分解リファクタ差分が作業ツリーに残存。
+      中断中なら `task test-fast` で状態確認し commit or stash
