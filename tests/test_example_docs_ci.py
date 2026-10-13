@@ -377,6 +377,53 @@ def test_template_ci_runs_license_check(tmp_path: Path):
     assert any("license-check" in line for line in gitlab["lint"]["script"]), "GitLab's lint job matches"
 
 
+def test_template_legal_check_task(tmp_path: Path):
+    """Recommended path ships a standalone legal-check task + an AGENTS.md row.
+
+    law-lint is network-dependent (uvx fetches it from git), so the task
+    stays out of `type-check`/`check` like audit/license-check (both must
+    run offline). The AGENTS.md command table iterates `agent_cmd_specs`,
+    not the task model, so without a spec entry the guide silently omits it.
+    """
+    copy_project(tmp_path, project_type="cli")
+    tasks = yaml.safe_load((tmp_path / "Taskfile.yml").read_text())["tasks"]
+    assert any("law-lint" in str(command) for command in tasks["legal-check"]["cmds"])
+    assert not any("law-lint" in str(command) for command in tasks["type-check"]["cmds"]), (
+        "type-check must stay runnable offline"
+    )
+    assert "legal-check" not in tasks["check"].get("deps", []), "check must stay runnable offline"
+    assert "task legal-check" in (tmp_path / "AGENTS.md").read_text()
+
+
+@pytest.mark.parametrize(
+    "runner, answers, runner_file, task_name",
+    [
+        ("task", {"use_recommended_toolchain": False, "task_runner": "task"}, "Taskfile.yml", "legal-check"),
+        ("just", {"use_recommended_toolchain": False, "task_runner": "just"}, "justfile", "legal-check"),
+        ("make", {"use_recommended_toolchain": False, "task_runner": "make"}, "Makefile", "legal-check"),
+        ("poe", {"use_recommended_toolchain": False, "task_runner": "poe"}, "pyproject.toml", "legal-check"),
+        ("invoke", {"use_recommended_toolchain": False, "task_runner": "invoke"}, "tasks.py", "legal_check"),
+        ("duty", {"use_recommended_toolchain": False, "task_runner": "duty"}, "duties.py", "legal_check"),
+        (
+            "pixi",
+            {"use_recommended_toolchain": False, "package_manager": "pixi", "task_runner_pixi": "pixi"},
+            "pyproject.toml",
+            "legal-check",
+        ),
+    ],
+)
+def test_legal_check_task_ships_on_every_runner(
+    tmp_path: Path, runner: str, answers: dict[str, Any], runner_file: str, task_name: str
+):
+    """Every runner serializes the legal-check task and AGENTS.md lists it."""
+    target = tmp_path / runner
+    copy_project(target, project_type="cli", **answers)
+    rendered = (target / runner_file).read_text()
+    assert task_name in rendered, f"{runner} drops the legal-check task"
+    assert "law-lint" in rendered, f"{runner} legal-check lost its law-lint command"
+    assert "legal-check" in (target / "AGENTS.md").read_text(), f"{runner} AGENTS.md omits legal-check"
+
+
 def test_template_gitleaks_blocks_deidentification_salt(tmp_path: Path):
     """The generated gitleaks config carries the deidentification-salt rule."""
     copy_project(tmp_path, project_type="cli")

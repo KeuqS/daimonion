@@ -230,10 +230,11 @@
 {# The AGENTS.md command-table presentation, derived from the same model so
    the agent guide cannot drift from the runner files. #}
 {% set agent_cmd_specs = {'fix': 'auto-fix formatting and lint',
-                          'lint': 'ruff format --check + ruff check (check-only)',
-                          'test': 'pytest',
-                          'type-check': 'type checker + static analysis',
-                          'check': 'everything above'} %}
+                         'lint': 'ruff format --check + ruff check (check-only)',
+                         'test': 'pytest',
+                         'type-check': 'type checker + static analysis',
+                         'legal-check': 'law-lint diff --strict over the AGENTS.md ethics triggers',
+                         'check': 'everything above'} %}
 {% set agent_commented = ['fix', 'lint', 'test', 'type-check', 'check'] if task_runner_effective == 'task' else (['fix'] if task_runner_effective == 'just' else []) %}
 {% endif %}
 
