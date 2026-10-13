@@ -32,10 +32,18 @@ def top() -> Path:
     directly) so `monkeypatch.setattr(tools.adopt, "TOP", ...)` redirects all
     in-repo readers at once: the render, the ref judgement and the merge
     scaffold expand the same tree.
-    """
-    from tools import adopt  # noqa: PLC0415 -- top-level would be circular; at call time the facade is loaded
 
-    return adopt.TOP
+    Reads through `sys.modules` rather than importing `tools.adopt`: an
+    import here would close a static import cycle
+    (adopt -> adopt_cli -> ... -> adopt_models) for reportImportCycles.
+    If the facade is not loaded nothing can have patched it, so the
+    local `TOP` is authoritative.
+    """
+    mod = sys.modules.get("tools.adopt")
+    top = getattr(mod, "TOP", None) if mod is not None else None
+    if isinstance(top, Path):
+        return top
+    return TOP
 
 
 CONFIG_FILES = ("copier.yml", "copier.yaml")
