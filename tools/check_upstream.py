@@ -21,7 +21,17 @@ upstream feed it is compared against:
 - Postgres image (compose + CI service) — the major must still receive
   updates; warn when a newer major is the stable default.
 - Ubuntu base (resolute) — the LTS codename must still be supported.
-
+- Security-tool pins (weekly, same run):
+  - gitleaks binary (`GITLEAKS_VERSION` in .github/workflows/_hygiene.yml)
+    — tracks the latest release of gitleaks/gitleaks.
+  - actionlint image digest (`docker://rhysd/actionlint@sha256:` in the same
+    file) — tracks the digest behind the `latest` tag on Docker Hub.
+  - zizmor cli + action (`version:` + `zizmorcore/zizmor-action@` in
+    .github/workflows/security.yml, kept as a tested pair — see the
+    allowlist test in tests/test_workflow_security.py) — tracks the latest
+    release of zizmorcore/zizmor.
+  - uvx tool pins (`conventional-pre-commit`, `nbstripout`, `cffconvert` in
+    the same hygiene file) — each tracks its latest release on PyPI.
 Exits 0 when everything is current, 1 on any drift. Intended to run in CI
 (see .github/workflows/check-upstream.yml) where a nonzero exit + the drift
 report opens an issue.
@@ -301,7 +311,7 @@ def _extract_hygiene_pins() -> list[Pin]:
     hygiene_src = (TOP / ".github" / "workflows" / "_hygiene.yml").read_text()
     gitleaks_m = re.search(r"GITLEAKS_VERSION: (\d+\.\d+\.\d+)", hygiene_src)
     digest_m = re.search(r"rhysd/actionlint@sha256:([0-9a-f]{64})", hygiene_src)
-    return [
+    pins = [
         Pin(
             name="gitleaks version (_hygiene.yml)",
             current=gitleaks_m.group(1) if gitleaks_m else "?",
@@ -310,6 +320,35 @@ def _extract_hygiene_pins() -> list[Pin]:
         Pin(
             name="actionlint image digest (_hygiene.yml)",
             current=digest_m.group(1)[:12] if digest_m else "?",
+            checkable=True,
+        ),
+    ]
+    for tool in ("conventional-pre-commit", "nbstripout", "cffconvert"):
+        tool_m = re.search(rf"uvx {re.escape(tool)}==([0-9][\w.+-]*)", hygiene_src)
+        pins.append(
+            Pin(
+                name=f"uvx {tool} version (_hygiene.yml)",
+                current=tool_m.group(1) if tool_m else "?",
+                checkable=True,
+            )
+        )
+    return pins
+
+
+def _extract_security_pins() -> list[Pin]:
+    """Extract the zizmor action/cli pins from the security workflow."""
+    security_src = (TOP / ".github" / "workflows" / "security.yml").read_text()
+    cli_m = re.search(r'version: "(\d+\.\d+\.\d+)"', security_src)
+    action_m = re.search(r"zizmorcore/zizmor-action@([0-9a-f]{40}) # (v\d+\.\d+\.\d+)", security_src)
+    return [
+        Pin(
+            name="zizmor cli version (security.yml)",
+            current=cli_m.group(1) if cli_m else "?",
+            checkable=True,
+        ),
+        Pin(
+            name="zizmor action version (security.yml)",
+            current=action_m.group(2) if action_m else "?",
             checkable=True,
         ),
     ]
@@ -325,6 +364,7 @@ def extract_pins() -> list[Pin]:
     pins.extend(_extract_copier_pin())
     pins.extend(_extract_runner_pins())
     pins.extend(_extract_hygiene_pins())
+    pins.extend(_extract_security_pins())
     return pins
 
 
@@ -437,6 +477,23 @@ def _resolve_pypi_floor(name: str, current: str) -> str | None:
     return f"floor {floor} / latest {latest}"
 
 
+def _resolve_uvx_tool(tool: str) -> str | None:
+    """Resolve the latest PyPI release of a uvx-pinned hygiene tool.
+
+    Reuses the floor machinery with a `==` current value: the resolver
+    returns `floor <v> / latest <v>` on success, so drift reads as the
+    two versions differing rather than as a removed floor.
+    """
+    return _resolve_pypi_floor(f"uvx {tool}", f"=={_extract_uvx_current(tool)}")
+
+
+def _extract_uvx_current(tool: str) -> str:
+    """Read the uvx-pinned version of `tool` back out of the hygiene workflow."""
+    hygiene_src = (TOP / ".github" / "workflows" / "_hygiene.yml").read_text()
+    tool_m = re.search(rf"uvx {re.escape(tool)}==([0-9][\w.+-]*)", hygiene_src)
+    return tool_m.group(1) if tool_m else "?"
+
+
 def _resolve_devcontainer_base(image: str) -> str:
     """Anonymous registry manifest check for the ghcr devcontainer base."""
     path, tag = image.removeprefix("ghcr.io/").rsplit(":", 1)
@@ -486,6 +543,13 @@ def _resolve_one(pin: Pin, today: str) -> str | None:  # noqa: PLR0911, PLR0912,
         data = https_get_json("hub.docker.com", "/v2/repositories/rhysd/actionlint/tags/latest")
         digest = data.get("digest") if isinstance(data, dict) else None
         return str(digest).removeprefix("sha256:")[:12] if digest else None
+    if name.startswith("zizmor cli version"):
+        return github_latest_release("zizmorcore/zizmor")
+    if name.startswith("zizmor action version"):
+        return github_latest_release("zizmorcore/zizmor-action")
+    if name.startswith("uvx "):
+        tool = name.removeprefix("uvx ").split(" version")[0]
+        return _resolve_uvx_tool(tool)
     return None
 
 
@@ -524,6 +588,21 @@ def _check_exact_match_drift(pin: Pin) -> tuple[bool, str] | None:
             f"v{pin.current}" == pin.upstream,
             f"[ok]     {pin.name}: v{pin.current}",
             f"[DRIFT]  {pin.name}: v{pin.current} -> official latest {pin.upstream}",
+        ),
+        "zizmor cli version": (
+            f"v{pin.current}" == pin.upstream,
+            f"[ok]     {pin.name}: v{pin.current}",
+            f"[DRIFT]  {pin.name}: v{pin.current} -> official latest {pin.upstream}",
+        ),
+        "zizmor action version": (
+            pin.current == pin.upstream,
+            f"[ok]     {pin.name}: {pin.current}",
+            f"[DRIFT]  {pin.name}: {pin.current} -> official latest {pin.upstream}",
+        ),
+        "uvx ": (
+            f"floor {pin.current} / latest {pin.current}" == pin.upstream,
+            f"[ok]     {pin.name}: {pin.current}",
+            f"[DRIFT]  {pin.name}: {pin.current} ({pin.upstream})",
         ),
         "MicroPython tag": (
             pin.current == pin.upstream,
