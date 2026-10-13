@@ -8,6 +8,7 @@ Practical step-by-step guides for the more experienced user.
 - [Run Tests](how-to/run-tests.md)
 - [Run CI Locally](how-to/local-ci.md)
 - [Check a Change Without the Full Suite](how-to/test-loop.md)
+- [Use the Template MCP Server](how-to/mcp-tools.md)
 - [Run a Batch of Generation Requests](how-to/batch.md)
 - [Inspect a Target Before Applying the Template](how-to/detect.md)
 - [Explain a Preset or an Answer](how-to/explain.md)

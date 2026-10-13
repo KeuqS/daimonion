@@ -10,6 +10,8 @@ Explanations of how it works and why it works that way.
 - [Extending the Questionnaire](explanations/extending.md)
 - [Long-Running Executables](explanations/long-running.md)
 - [Security & Compliance](explanations/security.md)
+- [Production Security Defaults](explanations/security-defaults.md)
+- [System Flows](explanations/flows.md)
 - [Verification Architecture](explanations/verification.md)
 - [Ethics as External Source](explanations/ethics-external.md)
 - [Branching Model](explanations/branching.md)
