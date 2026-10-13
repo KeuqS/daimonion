@@ -516,6 +516,8 @@
       
         
       
+        
+      
     
     
     
@@ -1277,6 +1279,33 @@
     
   
   Distribute an MCP Server
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-production/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  MCP in Production
 
     
   </span>
@@ -2716,14 +2745,16 @@
 Context Protocol) server onto a <code>cli</code> or <code>web_api</code> project. Answering <strong>No</strong>
 to <code>use_recommended_integrations</code> and <strong>Yes</strong> to <code>include_mcp</code> adds the <code>mcp</code>
 SDK (with its CLI), generates an <code>mcp_server.py</code> with typed example tools,
-and ships an in-process client test.</p>
-<p>An MCP server is a <strong>long-running process</strong> — it does not fit the
+and ships an in-process client test.
+An MCP server is a <strong>long-running process</strong> — it does not fit the
 "print and exit" CLI model. See
 <a href="../../explanations/long-running/">the layer model</a> for why it is a module on
 top of a normal <code>cli</code> / <code>web_api</code> project rather than its own project type.</p>
 <p>This page has two audiences: <strong>developers</strong> building an MCP server (from the
 scaffold or their own) and <strong>users / operators</strong> adding MCP servers to a
-host. The security sections are split accordingly.</p>
+host. The security sections are split accordingly. Serving the HTTP
+transport past local debugging — compose, replicas, auth — is
+<a href="../mcp-production/">Running an MCP Server in Production</a>.</p>
 <h2 id="what-gets-generated">What gets generated<a class="headerlink" href="#what-gets-generated" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The <code>mcp[cli]&gt;=2.0,&lt;3</code> dependency (the SDK plus its <code>mcp</code> command).</li>
