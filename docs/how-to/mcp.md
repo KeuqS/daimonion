@@ -73,7 +73,9 @@ server up with no manual registration. Beyond that:
   server.
 - **Published server**: after releasing to PyPI (the `pypi` option), users
   run `uvx mcp-server-<name>` — no install needed. Point `.mcp.json` (or the
-  host config) at that command instead.
+  host config) at that command instead. The full recipe — replacing the
+  example surface, the SDK pin policy, registry listing — is
+  [Distributing an MCP Server](mcp-distribute.md).
 
 ## Consuming MCP servers (as a client)
 

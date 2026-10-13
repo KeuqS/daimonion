@@ -38,6 +38,7 @@ nav = [
       { "Web API" = "how-to/web-api.md" },
       { "Data-Science Layout" = "how-to/data-science.md" },
       { "MCP Server" = "how-to/mcp.md" },
+      { "Distribute an MCP Server" = "how-to/mcp-distribute.md" },
       { "Chat Bots" = "how-to/bot.md" },
       { "Web Fetching" = "how-to/scraping.md" },
       { "Online Judge" = "how-to/online-judge.md" },

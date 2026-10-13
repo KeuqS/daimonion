@@ -19,6 +19,11 @@ verdicts live in `TODO.md` next to the decision.
   official SDK docs. Basis for the "no MCP-specific Docker recipe" position
   in the [MCP how-to](../how-to/mcp.md): process management and auth stay
   outside the scaffold.
+- [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) —
+  the official reference implementations (educational, not production-ready).
+  Basis for the [distribution recipe](../how-to/mcp-distribute.md): the
+  `everything` shape reference, the `filesystem` access-control pattern, and
+  the `uvx mcp-server-<name>` + registry publication model.
 - [Model Context Protocol](https://modelcontextprotocol.io) — the spec
   itself. Referenced for transport status (SSE deprecated → streamable-http)
   and `TransportSecuritySettings` semantics.
