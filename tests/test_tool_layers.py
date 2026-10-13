@@ -114,6 +114,7 @@ LAYERS: dict[str, tuple[str, frozenset[str]]] = {
                 "answers_for",
                 "batch",
                 "detect",
+                "gen_invariants",
                 "git",
                 "predicates",
                 "question_graph",
