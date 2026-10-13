@@ -40,7 +40,72 @@ jobs:
     permissions:
       contents: write
 
+  pixi-render-test:
+    name: pixi render + test
+    # DESIGN-ci-coverage.md §2 option (b): the template's own weekly proof
+    # that the pixi venv path still works end to end. No witness leaf
+    # selects pixi (every leaf renders uv), so the job renders its own
+    # answers: a pixi-selected cli leaf with pixi native tasks (the
+    # pixi.lock placeholder the render ships proves the branch). The render
+    # runs the generated project's own `test` task the way its CI would
+    # (`pixi run -e dev --locked`), after `pixi install`. Weekly-scheduled
+    # only: the install resolves the full dependency tree from the network,
+    # far too heavy for push/PR (like the ci.yml nightly heavy tier).
+    # The poetry half of §2 stays render-only (support.yml, best_effort):
+    # a poetry render's `poetry install` cannot build the project --
+    # setuptools auto-discovery misses the src/ package whose name differs
+    # from the distribution, and the generated tests import a
+    # setuptools-scm version file poetry never writes -- so there is no
+    # green `test` run to pin yet. If the template ever ships an explicit
+    # `[tool.poetry] packages` table, extend this job with the poetry leaf.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The render below runs copier at --vcs-ref=HEAD against this
+          # checkout: the job tests today's template, not the newest release.
+          fetch-depth: 0
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+
+      - name: Render the pixi leaf
+        run: |
+          set -euo pipefail
+          # --defaults answers every question the --data flags leave out
+          # (including the required "Project Details" block) without an
+          # interactive session; --data wins over example-answers.yml for
+          # the toolchain questions, so the leaf stays the example project
+          # with only the package manager (and pixi's runner) switched.
+          # package_name matches the distribution's normalized stem (both
+          # derive from the same answers) so the editable install finds
+          # the src/ package.
+          uvx copier copy --trust --defaults \
+            --data-file example-answers.yml \
+            --data use_recommended_toolchain=false \
+            --data package_manager=pixi \
+            --data task_runner_pixi=pixi \
+            --data package_name=daemon_example \
+            --data distribution_name=daemon-example \
+            --data repo_name=daemon-example \
+            --vcs-ref=HEAD . /tmp/render-pixi
+          test -f /tmp/render-pixi/pixi.lock
+          grep -q '\[tool.pixi.feature.dev.tasks\]' /tmp/render-pixi/pyproject.toml
+
+      - name: Install the pixi environment and run its test task
+        working-directory: /tmp/render-pixi
+        run: |
+          set -euo pipefail
+          pixi install
+          pixi run -e dev --locked test
   law-map-review-by:
     name: law-map review_by drift
     # Obligation-graph freshness, not toolchain drift: every grounding in
@@ -102,7 +167,7 @@ jobs:
 
   open-drift-issue:
     name: Open issue on drift
-    needs: [lint, test, docs]
+    needs: [lint, test, docs, pixi-render-test]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
