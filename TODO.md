@@ -76,18 +76,18 @@
 
 ### B. アーカイブ側の残り(28 件 + 各着地記録。原文は archive)
 
-- 機能の将来拡張(7): OJ 9 種＋その他(§2, archive L117)/ bot LINE・Gmail 残り(§4, L182)/
-  スタンドアロン MCP レシピ・MCP 本番運用(§5, L362–363)/ SQLAdmin・FastCRUD(§6, L440)/
-  library 空依存の維持・質問化(§17, L1058)/ 実行環境への配慮 — Colab / AWS Lambda(§35, このファイル)
-- 公開・運用手順(14): v1.0 fork 解除(§11, L544)/ renovate digest・example 再生成・
+- 機能の将来拡張(7): OJ 9 種＋その他(§2, archive L117)[agent可]/ bot LINE・Gmail 残り(§4, L182)[着地済み]/
+  スタンドアロン MCP レシピ・MCP 本番運用(§5, L362–363)[agent可]/ SQLAdmin・FastCRUD(§6, L440)[人間判断]/
+  library 空依存の維持・質問化(§17, L1058)[「維持」決着済み]/ 実行環境への配慮 — Colab / AWS Lambda(§35, このファイル)[人間判断]
+- 公開・運用手順(14)[全て人間作業: repo admin/secrets・外部投稿・組織判断]: v1.0 fork 解除(§11, L544)/ renovate digest・example 再生成・
   Scorecard 確認・branch 保護(§12, L615–621)/ 改名・由来明記・Scorecard 初回・告知・
   hypermodern 乗換・Z3 記事・bus-factor(§16, L995–1028)/ fork 作成 F3 着手・手動投稿(§21, L1489–1497)
 - CI・検証の残り(8): CI 緑確認・教訓(ネスト)・バッジ乖離・Periodic(§15, L800–815。
   **2026-10-13 確認済み**: run 38342604347 全ジョブ緑(lint/docs/hygiene/test/
   test-meta/Security/Scorecard/example update)。basedpyright が警告のみでも
   exit 1 を返す分岐が判明し、葉分割由来の 151 警告を pragma で沈黙させた)/
-  setup composite 化・未検証組合せ(§19, L1328–1348)/ `render_project` 戻り値・
-  手書きテスト棚卸し(§23, L1841–1910)
+  setup composite 化[着地済み・実走確認のみ人間]・未検証組合せ(§19, L1328–1348)[agent可・実走確認は人間]/ `render_project` 戻り値・
+  手書きテスト棚卸し(§23, L1841–1910)[着地済み]
 
 
 ## 29. ethicsセクションの昇格ロードマップ（2026-09-19 検討）
@@ -469,7 +469,7 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
 
 §37 / `notes/PLAN-widespread-adoption.md` と重複しない指摘のみ。優先順。
 
-- [ ] **main CI を緑に戻す**(エージェント側の修正は PR #19 に集約、残りは secrets 値の問題で人間作業。2026-10-06): `hygiene` の trailing-newline 赤（`notes/outreach/` 3 件）は修正済み。`GITLEAKS_LICENSE` は secret 自体は存在するが action に空で届く — `_hygiene.yml` が `workflow_call` で secret 宣言も env 受け渡しもしていなかったのが原因で、`ci.yml`(本体+生成物) からの forward を含めて PR #19 で修正済み。それでも空なので**保存値自体が空/不正**と診断（API では値を確認不可）。対処: gitleaks.io で無料 org キーを再取得し `gh secret set GITLEAKS_LICENSE` で再設定。`EXAMPLE_DEPLOY_KEY` は 2026-10-06 に再設定済み（deploy key を `daimonion-example` に登録 + secret 設定。2026-10-06 の `_example.yml` 手動 dispatch が success し `daimonion-example@1c99dde2` への push を確認 — merge 前でも鍵の有効性は実証済み）。~~issue #1（pip-audit: pyjwt / urllib3）~~は #13 で解消・close 済み。issue #3（upstream drift f566e13、lockfile-only）は 2026-10-06 にレビュー・marker 更新・close 済み。#2（scheduled check 失敗）は次回週次実行が緑になれば close。README 先頭の CI バッジは PR #19 merge + license 再設定後に緑化見込み
+- [ ] **main CI を緑に戻す**(エージェント側の修正は PR #19 に集約、残りは secrets 値の問題で人間作業。2026-10-06): `hygiene` の trailing-newline 赤（`notes/outreach/` 3 件）は修正済み。`GITLEAKS_LICENSE` は secret 自体は存在するが action に空で届く — `_hygiene.yml` が `workflow_call` で secret 宣言も env 受け渡しもしていなかったのが原因で、`ci.yml`(本体+生成物) からの forward を含めて PR #19 で修正済み。それでも空なので**保存値自体が空/不正**と診断（API では値を確認不可）。対処: gitleaks.io で無料 org キーを再取得し `gh secret set GITLEAKS_LICENSE` で再設定。**（2026-10-13 更新: §48 で gitleaks-action を pin バイナリに置換し GITLEAKS_LICENSE 自体が不要に — この secret 再設定は消滅。残る人間作業は PYPI_API_TOKEN のみ）**。`EXAMPLE_DEPLOY_KEY` は 2026-10-06 に再設定済み（deploy key を `daimonion-example` に登録 + secret 設定。2026-10-06 の `_example.yml` 手動 dispatch が success し `daimonion-example@1c99dde2` への push を確認 — merge 前でも鍵の有効性は実証済み）。~~issue #1（pip-audit: pyjwt / urllib3）~~は #13 で解消・close 済み。issue #3（upstream drift f566e13、lockfile-only）は 2026-10-06 にレビュー・marker 更新・close 済み。#2（scheduled check 失敗）は次回週次実行が緑になれば close。README 先頭の CI バッジは PR #19 merge + license 再設定後に緑化見込み
 - [x] **初の外部 PR #9（AK-Lmn）の扱い**: ✅ 2026-10-06 に解決。fork 削除済みで
       merge 不可だったため内容を共著クレジット付きで #23 として再作成し merge、
       #9 は superseded として close、issue #5 も close 済み。
@@ -716,37 +716,72 @@ web_api Docker 拡充と一体設計）・HUMAN_TODO（PYPI_API_TOKEN、private 
       全ゲート通過/空白/不正構文/不束縛変数の境界テスト、`tests/test_cli.py` の
       `prepare --write`→`check` 自動読込/`--strict`/`--format`/`diff` 非
       git ディレクトリ/バイナリ・権限エラー時の抑止テスト。計 55 件全緑）
-- [ ] **law-map checks spec への `triggers:` 接続**: spec に regex フィールドを
-      足せば law-lint が law-map checkout を `--rules` で直接消費でき、
-      obligation → check spec → lint trigger → AGENTS.md 節のパイプラインが
-      閉じる（§41-A1 の open-law 連携と同型）
+- [x] **完了: law-map checks spec への `triggers:` 接続** ✅ **2026-10-13**
+      （law-map `bb623d7`: `src/law_map/checkspecs.py` で `triggers:` 正規表現
+      リストをスキーマ検証（不正 regex は `validate` を落とす）＋全 18 spec
+      に daimonion ethics 節と同語彙で付与；`external-transmission-declared`
+      の未検出 YAML 破損も捕捉・修正。law-lint `5bbcc4e`:
+      `Rule.from_check_spec` + `--rules` のディレクトリ受けで
+      `law-lint --rules ../law-map/checks` が spec を直接消費。
+      obligation → check spec → lint trigger → AGENTS.md 節のパイプライン閉結。
+      law-map 94 passed / law-lint 63 passed）
 
 ### C. daimonion 本体
 
-- [ ] **§36 S5: invariants/layers の導出化**（着手条件充足）: 質問票から
-      `invariants.yml` 手書き行を生成。S1（task regen）・S2（blast-radius 表 +
-      docs-only lint 常時化）・S3・S4 は着地済み、残る手動結合はここ。
-      「大きなリファクタ」と節内に明記 — 計画立ててから
-- [ ] **§29 region 節の昇格再判断**: 「3 件目の地域セクションが集まったら
-      昇格を再検討」の条件に対し region 節は現行 4 件（eu-cra / eu-eaa /
-      jp-external-transmission / kyushu-ntp）。条件充足の確認と、昇格 or
-      保留継続の判断を記録するだけでも可
-- [ ] **アーカイブ残 28 件の仕分け**: §B 索引は人間作業中心だが「library 空依存
+- [x] **§36 S5: invariants/layers の導出化**（着手条件充足）→ **計画着地
+      2026-10-13**: `notes/plan-S5-derived-invariants.md`（commit `28af493e`）。
+      36 葉行 + layers.yml 6 行を D（完全導出可）/ P（骨格導出・tier/markers/
+      why は人間）/ H（手書き維持）に分類、`tools/gen_invariants.py
+      --check/--write/--layers` と M0–M4 移行順を設計。実装は計画に従う別 wave
+- [x] **§29 region 節の昇格再判断** → **判断記録済み（2026-10-13）: 保留継続**。
+      region 節は 4 件で条件は数値的に充足したが、着地した 3 件目
+      `region-eu-cra` は既存回答（`distribution: commercial`）で gate 可能
+      だったため前提（市場ゲート節の同梱経路が要るか）が成立していない。
+      `region-jp-external-transmission` / `region-eu-eaa`（audience `[web]`）は
+      同梱参照（`ethics/regions.yml` + AGENTS.md ポインタ、葉 +0）で既に唯一の
+      適用対象に届いており、昇格には `target_markets` 質問＝葉次元増が必要で
+      対価が合わない。再トリガー条件: regions.yml チャネルを共有する
+      **3 件目の市場ゲート節**の出現、または市場型質問が独立に正当化された時。
+      別件: `region-kyushu-ntp` は audience ゲート型（iot→micropython 写像で
+      葉 +0）で今でも昇格可能だが市場バンドル外のため本判断の対象外
+- [x] **アーカイブ残 28 件の仕分け** → **仕分け済み（2026-10-13）**: §B 索引は
+      人間作業中心だが「library 空依存
       の質問化（§17 L1058）」「render_project 戻り値・手書きテスト棚卸し
       （§23 L1841–1910）」「setup composite 化・未検証組合せ（§19 L1328–1348）」
       等エージェント可のものが混在。節ごとに agent-doable / human-only を
-      付けて索引を更新
+      付けて索引を更新。
+      **実施結果**: agent-doable は実質 4 件（§2 OJ 追加・§5 スタンドアロン
+      MCP レシピ・§5 MCP 本番運用・§19 未検証組合せ（実走確認のみ人間））で、
+      他の agent-doable 7 件は着地済み（§4 Gmail・§16 由来明記・§21 fork
+      作成・§15 ネスト教訓・§19 setup composite・§23 2 件）。残り ~16 件は
+      人間専有（repo admin/secrets・外部投稿・設計判断）、§17 は「維持」
+      決着済み。公開・運用系は本質的に人間作業
 
 ### D. エコシステム横断
 
-- [ ] **codex 逆方向 6 節の `related_sections` 配線確認**: `law-map validate
+- [x] **codex 逆方向 6 節の `related_sections` 配線確認** → **誤検出で解消
+      （2026-10-13、law-map `2b2a453`）**: `law-map validate
       --codex` が報告する obligation 未接続節（contest-rules / ml-bias /
       prompt-injection / region-eu-eaa / kyushu-ntp / samd）のうち 4 件は
-      §44 で obligation 追加済みのはず — 逆リンク未配線なら接続で警告解消
-- [ ] **open-law key-free 法域 adapter 追加**: `docs/explanations/
-      asia-coverage.md` 起点。KR は key-gated、US 州法は §41 で charter 上
-      blocked 決着済み。残る key-free 法域は独立タスクとして good first
-      issue 型に適合
-- [ ] **daimonion 未コミット差分の処理判断**: `tools/adopt*.py` 系 + テスト
+      §44 で obligation 追加済みのはず — 逆リンク未配線なら接続で警告解消。
+      **実態**: 配線は全て正常（18 codex 節 ↔ 15 obligation が 1:1 解決、
+      `--codex` は当初から 0 件）。警告は `_count_section_users` の
+      「2 件未満で警告」ヒューリスティックの偽陽性 — codex id は一意が正常で
+      単一参照は正しい形。offline 側の弱警告を撤去し `--codex` 時のみ
+      検査する契約に変更。`validate --warnings` は 17→1 件（contest-rules
+      spec-less の正当な通知のみ）
+- [x] **完了: open-law key-free 法域 adapter 追加** ✅ **2026-10-13**
+      （open-law `feat(mv)`: `asia-coverage.md` の key-free 候補を実プローブし
+      mvlaw.gov.mv（Maldives AGO、robots allow、261 法）を選択 —
+      lex.uz は SPA・PH Gazette は 403・Indonesia JDIH は到達不可。
+      `MvLawAdapter`（fetch/search/full_text、サーバ描画経路）+ オフライン
+      fixture テスト 9 件 + live-tier probe + `adapter-health.yml` + docs。
+      187 passed / ruff・basedpyright clean）
+- [x] **daimonion 未コミット差分の処理判断** → **コミット済み
+      （2026-10-13）**: `tools/adopt*.py` 系 + テスト
       28 ファイル（+442/-627）の adopt 分解リファクタ差分が作業ツリーに残存。
-      中断中なら `task test-fast` で状態確認し commit or stash
+      中断中なら `task test-fast` で状態確認し commit or stash。
+      **実施**: `task test-fast` 1169 全緑・ruff/basedpyright clean を確認し
+      `b780c44c`（refactor: lazy facade を adopt_types/adopt_revision/
+      adopt_tree/adopt_run に分解）としてコミット。legal-check 表登録は
+      `8f155bce` で別コミット
