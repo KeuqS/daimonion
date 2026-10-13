@@ -24,7 +24,7 @@ on:
 jobs:
 {% if ros2_pkg %}{% if ros2_package_manager == 'pixi' %}
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -51,7 +51,7 @@ jobs:
     env:
       ROS_DISTRO: {{ ros_distro }}
       ROS_REPO: main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -76,7 +76,7 @@ jobs:
   test:
     strategy:
       matrix:
-        runs-on: ["ubuntu-latest"] # can add windows-latest, macos-latest
+        runs-on: ["ubuntu-24.04"] # can add windows-latest, macos-latest
 {% endraw %}
         python-version: {{ '["3.11", "3.12", "3.13", "3.14"]' if is_uv else '["3.11"]' }}
 {% raw %}
@@ -135,7 +135,7 @@ jobs:
 {% endif %}
 {% if micropython_pkg %}
   firmware:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -152,7 +152,7 @@ jobs:
   release:
     needs: [firmware]
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -170,7 +170,7 @@ jobs:
   release:
     needs: [test{% if docs %}, docs{% endif %}]
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -209,7 +209,7 @@ jobs:
     needs: [hygiene, lint, test{% if docker %}, container{% endif %}{% if docs %}, docs{% endif %}{% if micropython_pkg %}, firmware{% elif online_judge %}{% elif not micropython_pkg %}, dist{% endif %}]
 {% raw %}
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check all required jobs passed

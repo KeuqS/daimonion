@@ -27,7 +27,7 @@ on:
 jobs:
   e2e:
     name: law-map export, codex validate, daimonion render
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       issues: write

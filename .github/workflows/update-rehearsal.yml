@@ -30,7 +30,7 @@ on:
 jobs:
   rehearsal:
     name: Update rehearsal (every witness leaf)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Job-level grant above the workflow's `contents: read` default: the
     # publish step below pushes the report and opens its PR, and both of

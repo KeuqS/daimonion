@@ -24,7 +24,7 @@ jobs:
   test:
     uses: ./.github/workflows/_test.yml
     with:
-      runs-on: ubuntu-latest
+      runs-on: ubuntu-24.04
       task_runner: task
 
   docs:
@@ -52,7 +52,7 @@ jobs:
     # --codex also validates related_sections ids resolve inside
     # good-future-codex (sections/<tier>-<slug>.md.jinja); structural corpus
     # validation itself is law-map's own ci.yml.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       issues: write
@@ -104,7 +104,7 @@ jobs:
     name: Open issue on drift
     needs: [lint, test, docs]
     if: always() && contains(needs.*.result, 'failure')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       issues: write

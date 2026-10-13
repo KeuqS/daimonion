@@ -6,7 +6,7 @@
 # community-standard Ubuntu-like runner image for act and preinstalls most
 # of what jobs assume; the rest (uv, task, toolchains) the jobs install
 # themselves, exactly as they do on GitHub's runners.
--P ubuntu-latest=catthehacker/ubuntu:act-latest
+-P ubuntu-24.04=catthehacker/ubuntu:act-24.04
 
 # Reuse pulled images instead of re-pulling on every run; a fresh pull of the
 # runner image costs more than most jobs here.

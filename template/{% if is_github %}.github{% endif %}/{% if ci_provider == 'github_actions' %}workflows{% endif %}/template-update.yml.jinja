@@ -57,7 +57,7 @@ jobs:
   update:
     name: Try copier update and open a PR
     if: vars.TEMPLATE_UPDATE == '1'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write # push the trial branch; a read-only token fails the push with 403

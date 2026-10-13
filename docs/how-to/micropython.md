@@ -146,7 +146,7 @@ port and runs `main.py`:
 
 ```yaml
   unix-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get install -y build-essential libffi-dev pkg-config

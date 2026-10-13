@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   linkcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -33,7 +33,7 @@ jobs:
     # otherwise surfaces only when a human files the upstream PR. Reuses
     # copier-fork/scripts/verify-patch.sh's `git apply --check` pattern
     # against a fresh pinned checkout of copier-org/copier.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout

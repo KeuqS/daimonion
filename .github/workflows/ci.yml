@@ -46,7 +46,7 @@ jobs:
     # skip every job that needs it. On non-PR events only the steps are
     # skipped, the empty output reads as "not docs-only", and everything runs
     # (nightlies and tag pushes must never be gated by a diff).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       docs-only: ${{ steps.filter.outputs.docs-only }}
@@ -98,7 +98,7 @@ jobs:
     needs: changes
     uses: ./.github/workflows/_test.yml
     with:
-      runs-on: ubuntu-latest
+      runs-on: ubuntu-24.04
       task_runner: task
       task: test-fast
 
@@ -112,7 +112,7 @@ jobs:
     needs: changes
     uses: ./.github/workflows/_test.yml
     with:
-      runs-on: ubuntu-latest
+      runs-on: ubuntu-24.04
       task_runner: task
       task: test-meta
       # Re-collecting six tiers is six pytest startups; the fast tier's 60 is
@@ -124,7 +124,7 @@ jobs:
     if: github.event_name == 'schedule'
     uses: ./.github/workflows/_test.yml
     with:
-      runs-on: ubuntu-latest
+      runs-on: ubuntu-24.04
       task_runner: task
       task: test-heavy
       # The venv tier is the slow one; _test.yml's default timeout is 60.
@@ -140,7 +140,7 @@ jobs:
     if: github.event_name == 'schedule'
     uses: ./.github/workflows/_test.yml
     with:
-      runs-on: ubuntu-latest
+      runs-on: ubuntu-24.04
       task_runner: task
       task: test-randomly
 
@@ -173,7 +173,7 @@ jobs:
     # any `skipped` test job on a docs-only PR) is tolerated by the jq below.
     needs: [changes, hygiene, lint, test, test-meta, docs]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check all required jobs passed

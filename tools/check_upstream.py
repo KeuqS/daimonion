@@ -277,10 +277,21 @@ def _extract_copier_pin() -> list[Pin]:
 
 
 def _extract_runner_pins() -> list[Pin]:
-    """Extract just CLI version pinned in composite action."""
+    """Extract the versions of the task runners the workflows pin."""
     composite_src = (TOP / ".github" / "actions" / "setup-runner" / "action.yml").read_text()
-    just_versions = set(re.findall(r'just-version: "(\d+\.\d+\.\d+)"', composite_src))
-    return [Pin(name="just version (setup-just)", current=",".join(sorted(just_versions)) or "?", checkable=True)]
+    pins = [
+        Pin(
+            name="just version (setup-just)",
+            current=",".join(sorted(set(re.findall(r'just-version: "(\d+\.\d+\.\d+)"', composite_src)))) or "?",
+            checkable=True,
+        )
+    ]
+    audit_src = (TOP / ".github" / "workflows" / "dependency-audit.yml").read_text()
+    task_m = re.search(r"task-version: v(\d+\.\d+\.\d+)", audit_src)
+    pins.append(
+        Pin(name="task version (dependency-audit.yml)", current=task_m.group(1) if task_m else "?", checkable=True)
+    )
+    return pins
 
 
 def _extract_hygiene_pins() -> list[Pin]:
@@ -465,6 +476,8 @@ def _resolve_one(pin: Pin, today: str) -> str | None:  # noqa: PLR0911, PLR0912,
         return _resolve_devcontainer_base(current)
     if name.startswith("just version"):
         return github_latest_release("casey/just")
+    if name.startswith("task version"):
+        return github_latest_release("go-task/task")
     if name.startswith("gitleaks version"):
         return github_latest_release("gitleaks/gitleaks")
     if name.startswith("actionlint image digest"):
@@ -504,6 +517,11 @@ def _check_exact_match_drift(pin: Pin) -> tuple[bool, str] | None:
             pin.current == pin.upstream,
             f"[ok]     {pin.name}: {pin.current}",
             f"[DRIFT]  {pin.name}: {pin.current} -> official latest {pin.upstream}",
+        ),
+        "task version": (
+            f"v{pin.current}" == pin.upstream,
+            f"[ok]     {pin.name}: v{pin.current}",
+            f"[DRIFT]  {pin.name}: v{pin.current} -> official latest {pin.upstream}",
         ),
         "MicroPython tag": (
             pin.current == pin.upstream,
