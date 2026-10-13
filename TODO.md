@@ -85,7 +85,7 @@
   **2026-10-13 確認済み**: run 38342604347 全ジョブ緑(lint/docs/hygiene/test/
   test-meta/Security/Scorecard/example update)。basedpyright が警告のみでも
   exit 1 を返す分岐が判明し、葉分割由来の 151 警告を pragma で沈黙させた)/
-  setup composite 化[着地済み・実走確認のみ人間]・未検証組合せ(§19, L1328–1348)[一部着地 2026-10-13: weekly `pixi-render-test` + `poetry-render-test` を scheduled-check.yml に追加(poetry は `[tool.poetry] packages` 明示 + `__init__` の importlib.metadata fallback で修正済み)。windows/macos・release 経路・初回実走確認は人間]/ `render_project` 戻り値・
+  setup composite 化[着地済み・実走確認のみ人間]・未検証組合せ(§19, L1328–1348)[着地 2026-10-13/14: weekly `pixi-render-test` + `poetry-render-test` を scheduled-check.yml に追加(poetry は `[tool.poetry] packages` 明示 + `__init__` の importlib.metadata fallback で修正済み)。初回実行で poetry は即緑、pixi は `setup-pixi` の manifest 自動 install が `pixi.toml` なし環境で失敗 → `run-install: false` で修正（scheduled-check.yml と setup-runner composite の両方。後者は生成物の CI に配布されるため非 ros2 pixi 生成物全体の潜在赤でもあった。`test_pixi_setup_step_installs_cli_only` で pin）。2026-10-14 に両 job 初回緑を確認。windows/macos・release 経路は人間]/ `render_project` 戻り値・
   手書きテスト棚卸し(§23, L1841–1910)[着地済み]
 
 
@@ -516,7 +516,10 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
       移設（ポインタは `notes/INTERNAL.md`）。`periodic.yml` の `patch-rot`
       job はローカル patch ファイルではなく公開 fork `kasi-x/copier` の
       4 ブランチ diff を pin タグ v9.18.1 へ適用検査する方式に切替
-      （4/4 が現在も apply 可をローカル検証済み）
+      （4/4 が現在も apply 可をローカル検証済み）。**push protection 再有効化も
+      同日に実施**: `secret_scanning` + `secret_scanning_push_protection` を
+      API で enabled に戻し、状態を API で確認済み。HUMAN_TODO の該当項も
+      内部リポ側で更新済み
 - [x] **変更速度を追える速さに**（PR 経由の習慣は 2026-10-05 から実施中 — 本日の変更は
       すべて PR #9-17 として経由）: 残る人間判断は定期リリースの周期（例: 月 1）と
       リリース前の凍結期間の設定
