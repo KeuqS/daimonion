@@ -74,6 +74,13 @@ jobs:
 
       - name: Install pixi
         uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+        with:
+          # The template checkout itself has no pixi.toml (pixi config lives
+          # in the generated pyproject's [tool.pixi]); without this the
+          # action's post-install `pixi install` canonicalizes a nonexistent
+          # workspace manifest and fails. The render below installs its own
+          # environment explicitly.
+          run-install: false
 
       - name: Render the pixi leaf
         run: |

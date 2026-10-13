@@ -923,6 +923,27 @@ def test_readme_first_run_uses_the_task_runner(tmp_path: Path):
     assert "pixi run -e dev lint" in first_run, "pixi renders must use the native task prefix"
 
 
+def test_pixi_setup_step_installs_cli_only(tmp_path: Path):
+    """setup-pixi must not auto-install the checkout's manifest.
+
+    projects (except ros2+pixi) keep pixi config in pyproject.toml's
+    [tool.pixi] with no standalone pixi.toml, so the action's default
+    post-install `pixi install` canonicalizes a nonexistent file and fails
+    (observed on the first scheduled-check pixi-render-test run). The
+    composite (shipped to every generated project) and the template's own
+    scheduled job both install the CLI only; environment creation stays
+    with the task definitions running in the project directory.
+    """
+    copy_project(tmp_path, project_type="cli", package_manager="pixi", task_runner_pixi="pixi")
+    assert not (tmp_path / "pixi.toml").exists(), "non-ros2 pixi config lives in pyproject.toml"
+    composite = yaml.safe_load((tmp_path / ".github" / "actions" / "setup-runner" / "action.yml").read_text())
+    pixi_step = next(
+        step for step in composite["runs"]["steps"] if str(step.get("uses", "")).startswith("prefix-dev/setup-pixi")
+    )
+    assert pixi_step.get("with", {}).get("run-install") is False, (
+        "setup-pixi must set run-install: false so CI works without a standalone pixi.toml"
+    )
+
 def test_readme_hides_type_check_below_recommended_strictness(tmp_path: Path):
     """At none/basic strictness the runner table must not list `type-check`
     (the task does not exist there); recommended keeps it."""

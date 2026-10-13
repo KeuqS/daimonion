@@ -36,6 +36,13 @@ runs:
     - name: Install pixi
       if: hashFiles('pixi.lock') != ''
       uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+      with:
+        # Install the CLI only: projects keep pixi config in pyproject.toml
+        # ([tool.pixi], except ros2+pixi which ships pixi.toml), and the
+        # action's default post-install `pixi install` canonicalizes a
+        # pixi.toml that usually does not exist. Environment creation stays
+        # with the task definitions, which run in the project directory.
+        run-install: false
 
     - name: Install poetry
       if: hashFiles('poetry.lock') != ''
