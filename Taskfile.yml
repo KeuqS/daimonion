@@ -115,7 +115,7 @@ tasks:
     cmd: uv run --locked python tools/update_rehearsal.py {{ .CLI_ARGS }}
 
   witness:
-    desc: 'Regenerate the 234 witness leaves and judge them all (JOBS=N, CLI_ARGS=...)'
+    desc: 'Regenerate the 272 witness leaves and judge them all (JOBS=N, CLI_ARGS=...)'
     vars:
       JOBS: '{{ .JOBS | default numCPU }}'
     cmds:
@@ -140,7 +140,7 @@ tasks:
   predicates:
     desc: >-
       Classify every condition site (question whens, internals, template body/filename ifs,
-      _tasks whens) over the 234 witness leaves: classification tree, equivalence classes,
+      _tasks whens) over the 272 witness leaves: classification tree, equivalence classes,
       unification candidates and shortcut suggestions (--json for the machine report)
     cmd: uv run --locked python tools/predicates.py {{ .CLI_ARGS }}
 
