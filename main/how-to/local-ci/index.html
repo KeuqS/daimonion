@@ -2571,8 +2571,8 @@ and free.</p>
 <li>The <code>act</code> binary (&gt;= 0.2.80): install from
   <a href="https://github.com/nektos/act/releases">nektos/act releases</a> into
   <code>~/.local/bin</code>, or <code>brew install act</code>.</li>
-<li>The repository's <code>.actrc</code> maps <code>ubuntu-latest</code> to
-  <code>catthehacker/ubuntu:act-latest</code> — an Ubuntu-like runner image. act's own
+<li>The repository's <code>.actrc</code> maps <code>ubuntu-24.04</code> to
+  <code>catthehacker/ubuntu:act-24.04</code> — an Ubuntu-like runner image. act's own
   default (<code>node:16-buster-slim</code>) cannot run this repository's jobs, which
   need apt, git and a glibc Python; the catthehacker image covers that, and
   the jobs install everything else themselves (uv, task, toolchains), exactly

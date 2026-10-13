@@ -2836,7 +2836,7 @@ against the stubs, but does <strong>not</strong> run the firmware itself. To als
 the code on the MicroPython unix port in CI, add a job that builds the unix
 port and runs <code>main.py</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="w">  </span><span class="nt">unix-smoke</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-24.04</span>
 <span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v7</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sudo apt-get install -y build-essential libffi-dev pkg-config</span>
