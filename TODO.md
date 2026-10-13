@@ -486,7 +486,18 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
 
 §37 / `notes/PLAN-widespread-adoption.md` と重複しない指摘のみ。優先順。
 
-- [ ] **main CI を緑に戻す**(エージェント側の修正は PR #19 に集約、残りは secrets 値の問題で人間作業。2026-10-06): `hygiene` の trailing-newline 赤（`notes/outreach/` 3 件）は修正済み。`GITLEAKS_LICENSE` は secret 自体は存在するが action に空で届く — `_hygiene.yml` が `workflow_call` で secret 宣言も env 受け渡しもしていなかったのが原因で、`ci.yml`(本体+生成物) からの forward を含めて PR #19 で修正済み。それでも空なので**保存値自体が空/不正**と診断（API では値を確認不可）。対処: gitleaks.io で無料 org キーを再取得し `gh secret set GITLEAKS_LICENSE` で再設定。**（2026-10-13 更新: §48 で gitleaks-action を pin バイナリに置換し GITLEAKS_LICENSE 自体が不要に — この secret 再設定は消滅。残る人間作業は PYPI_API_TOKEN のみ）**。`EXAMPLE_DEPLOY_KEY` は 2026-10-06 に再設定済み（deploy key を `daimonion-example` に登録 + secret 設定。2026-10-06 の `_example.yml` 手動 dispatch が success し `daimonion-example@1c99dde2` への push を確認 — merge 前でも鍵の有効性は実証済み）。~~issue #1（pip-audit: pyjwt / urllib3）~~は #13 で解消・close 済み。issue #3（upstream drift f566e13、lockfile-only）は 2026-10-06 にレビュー・marker 更新・close 済み。#2（scheduled check 失敗）は次回週次実行が緑になれば close。README 先頭の CI バッジは PR #19 merge + license 再設定後に緑化見込み
+- [x] **main CI を緑に戻す** → **緑化確認（2026-10-13、run 38385087549）**:
+  全 required checks green（lint/hygiene/docs/test/test-meta/example update）。
+  過程で発見・修正した 3 件: (a) legal-check 8 テスト分の台帳 drift
+  （tiers.json + test-loop.md 再記録）→ test-meta 赤 → 解消、(b) 自分の
+  コミット文 `docs(todo+how-to)` の scope 記法が conventional 違反
+  （`+` 不可）→ メッセージ分割。(c) gen_docs の tier-ledger 表 drift
+  （verification.md `--write`）。なお旧 HUMAN_TODO の `PYPI_API_TOKEN`
+  のみは引き続き未設定 — ただし `_pypi.yml` は OIDC trusted publishing
+  方式のため、PyPI 側で pending-publisher 登録 + `release` environment
+  作成が済めば token なしで tag push 公開が可能。token が要るのは
+  手動/初回 bootstrap 経路のみで、PyPI アカウントを持つ人間が
+  pypi.org で発行する必要がある
 - [x] **初の外部 PR #9（AK-Lmn）の扱い**: ✅ 2026-10-06 に解決。fork 削除済みで
       merge 不可だったため内容を共著クレジット付きで #23 として再作成し merge、
       #9 は superseded として close、issue #5 も close 済み。
