@@ -22,6 +22,7 @@ if str(TOP) not in sys.path:
 
 from tools import answers  # noqa: E402
 from tools import invariants  # noqa: E402
+from tools import questionnaire  # noqa: E402
 from tools import when_model  # noqa: E402
 
 
@@ -58,19 +59,23 @@ def scaffold_question(  # noqa: PLR0913
     if not path.is_file():
         print(f"Error: Target question file does not exist: {path}", file=sys.stderr)
         return 1
+    if qtype not in ("bool", "str", "yaml"):
+        print(f"Error: unknown question type {qtype!r} (expected bool, str, or yaml)", file=sys.stderr)
+        return 1
 
-    # Validate SAT if when != "true"
+    # Validate SAT if when != "true" (a missing `when` also asks: copier defaults it to true)
     if when != "true":
         ok, msg = validate_expression(when)
         if not ok:
             print(f"Warning: {msg}", file=sys.stderr)
 
+    braced = when if (when == "true" or (when.startswith("{{") and when.endswith("}}"))) else "{{ " + when + " }}"
     default_str = "true" if default is True else ("false" if default is False else repr(default))
     help_block = "\n".join(f"        {line}" for line in (help_text or f"Configure {name}?").splitlines())
     stub = f"""
 {name}:
     type: {qtype}
-    when: "{when}"
+    when: "{braced}"
     default: {default_str}
     help: |
 {help_block}
@@ -92,18 +97,21 @@ def scaffold_layer(
     description: str = "",
     dry_run: bool = False,
 ) -> int:
-    """Scaffold a new `include_<layer>` question, invariants row, and template directory."""
+    """Scaffold a new `include_<layer>` question, invariants row, layers-matrix row, and template guidance."""
     clean_name = layer_name.removeprefix("include_")
     question_name = f"include_{clean_name}"
 
-    # 1. Add question to questions/_common_b.yml
-    q_file = "questions/_common_b.yml"
+    # 1. Add question to questions/_combo.yml (the opt-in layers' home; keep
+    # ask order = file order there). The generated `when` is the combinable
+    # default; tighten it to the layer's real bases (cf. the existing
+    # include_* rows) and declare the same bases in tests/matrix/layers.yml.
+    q_file = "questions/_combo.yml"
     help_text = f"Include {clean_name} support? ({description or 'Opt-in layer'})"
     print(f"1. Staging question {question_name!r} in {q_file}...")
     res = scaffold_question(
         question_name,
         qtype="bool",
-        when="not oj_bare",
+        when="{{ project_type in ['library', 'cli'] }}",
         default=False,
         help_text=help_text,
         target_file=q_file,
@@ -112,7 +120,7 @@ def scaffold_layer(
     if res != 0:
         return res
 
-    # 2. Print invariants guidance
+    # 2. Print invariants + layers-matrix guidance
     inv_file = TOP / "tests" / "matrix" / "invariants.yml"
     inv_stub = f"""
   - id: include={question_name}
@@ -125,15 +133,31 @@ def scaffold_layer(
       why: "{clean_name} layer renders and checks clean in the fast tier"
     why: "the {clean_name} opt-in layer"
 """
+    layers_file = TOP / "tests" / "matrix" / "layers.yml"
+    layers_stub = f"""
+  - include: {question_name}
+    bases: [library, cli]
+    why: >-
+      <why this layer rides exactly these bases>
+"""
     if dry_run:
         print(f"=== [Dry Run] Would append to {inv_file.relative_to(TOP)} ===")
         print(inv_stub)
+        print(f"=== [Dry Run] Would append to {layers_file.relative_to(TOP)} ===")
+        print(layers_stub)
     else:
         print(f"2. Please add the following to {inv_file.relative_to(TOP)}:\n{inv_stub}")
+        print(f"   And the following to {layers_file.relative_to(TOP)}:\n{layers_stub}")
 
-    # 3. Print template stub guidance
-    template_dir = TOP / "template" / f"{{% if {question_name} %}}{clean_name}{{% endif %}}"
-    print(f"3. Template files can be placed under: {template_dir.relative_to(TOP)}/")
+    # 3. Print template + effective-internal guidance (layers render through
+    # a <name>_effective internal, not a raw include_* file condition)
+    print(
+        f"3. Wire the layer through a {clean_name}_effective internal in questions/_internal.yml "
+        f'(default: "{{{{ {question_name} and ... }}}}" , when: false), '
+        f"then gate template files on it: "
+        f"template/{{{{% if {clean_name}_effective %}}}}...{{{{% endif %}}}}/"
+    )
+    print("   Then run the extending runbook (docs/explanations/extending.md): task witness + markers + docs.")
     return 0
 
 
@@ -149,6 +173,14 @@ def scaffold_preset(
     preset_file = TOP / "presets" / f"{name}.yml"
     if preset_file.exists():
         print(f"Error: Preset {name!r} already exists at {preset_file}", file=sys.stderr)
+        return 1
+    questions, _order = when_model.load_questions()
+    valid_bases = questionnaire.static_str_choices(questions["project_type"])
+    if base_project_type not in valid_bases:
+        print(
+            f"Error: unknown base project_type {base_project_type!r} (expected one of: {', '.join(valid_bases)})",
+            file=sys.stderr,
+        )
         return 1
 
     content_lines = [
@@ -225,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     # question
     q_parser = sub.add_parser("question", help="scaffold a new question block in questions/")
     q_parser.add_argument("name", help="question variable name")
-    q_parser.add_argument("--type", default="bool", choices=["bool", "str", "int"], help="type of question")
+    q_parser.add_argument("--type", default="bool", choices=["bool", "str", "yaml"], help="type of question")
     q_parser.add_argument("--when", default="true", help="when condition (Jinja expression)")
     q_parser.add_argument("--default", default="true", help="default value (true, false, or literal)")
     q_parser.add_argument("--help-text", default="", help="help/prompt text for questionnaire")

@@ -362,7 +362,7 @@ def _add_scaffold_command(subcommands: Any) -> None:
 
     q = scaffold_sub.add_parser("question", help="scaffold a new question block")
     q.add_argument("name", help="question variable name")
-    q.add_argument("--type", default="bool", choices=["bool", "str", "int"], help="type of question")
+    q.add_argument("--type", default="bool", choices=["bool", "str", "yaml"], help="type of question")
     q.add_argument("--when", default="true", help="when condition (Jinja expression)")
     q.add_argument("--default", default="true", help="default value (true, false, or literal)")
     q.add_argument("--help-text", default="", help="help/prompt text for questionnaire")
