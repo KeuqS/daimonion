@@ -27,6 +27,7 @@ if str(TOP) not in sys.path:
 from tools import support_ledger  # noqa: E402
 from tools.gen_docs_model import FEATURES_DOC  # noqa: E402
 from tools.gen_docs_model import RUNNER_URLS  # noqa: E402
+from tools.gen_docs_model import SIZE_LEDGER_JSON  # noqa: E402
 from tools.gen_docs_model import SUPPORT_DOC  # noqa: E402
 from tools.gen_docs_model import TIERS_JSON  # noqa: E402
 from tools.gen_docs_model import Model  # noqa: E402
@@ -242,4 +243,20 @@ def render_tier_ledger(_model: Model) -> str:
             f"| `{row.get('task', name)}` | `{support_ledger.cell(selector)}`"
             f" | {row['collected']} | {support_ledger.cell(budget)} | {row['measured']} |"
         )
+    return "\n".join(lines)
+
+
+def render_size_ledger(_model: Model) -> str:
+    """`docs/reference/dependencies.md`: the generated size table.
+
+    One row per project_type x preset combination: the rendered file count,
+    the text line count, and the runtime dependency count -- the lightweight
+    half of the verification ledger (the cost half is `render_tier_ledger`).
+    Numbers come from `tests/matrix/sizes.json`, never measured here, so
+    `--check` stays offline and fast.
+    """
+    ledger = json.loads(SIZE_LEDGER_JSON.read_text(encoding="utf-8"))
+    lines = ["| Row | Files | Lines | Runtime deps |", "|---|---|---|---|"]
+    for name, row in ledger["rows"].items():
+        lines.append(f"| `{support_ledger.cell(name)}` | {row['files']} | {row['lines']} | {row['deps']} |")
     return "\n".join(lines)

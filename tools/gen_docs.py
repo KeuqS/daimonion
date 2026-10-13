@@ -64,12 +64,14 @@ from tools.gen_docs_blocks import write  # noqa: E402
 from tools.gen_docs_graph import render_mermaid  # noqa: E402
 from tools.gen_docs_model import ALL_TYPES  # noqa: E402
 from tools.gen_docs_model import BOOL_PROSE  # noqa: E402
+from tools.gen_docs_model import DEPENDENCIES_DOC  # noqa: E402
 from tools.gen_docs_model import FEATURES_DOC  # noqa: E402
 from tools.gen_docs_model import GATE_PREFIX  # noqa: E402
 from tools.gen_docs_model import INCLUDE_PREFIX  # noqa: E402
 from tools.gen_docs_model import PROMPT_STOPS  # noqa: E402
 from tools.gen_docs_model import QUESTIONNAIRE_DOC  # noqa: E402
 from tools.gen_docs_model import RUNNER_URLS  # noqa: E402
+from tools.gen_docs_model import SIZE_LEDGER_JSON  # noqa: E402
 from tools.gen_docs_model import SUPPORT_DOC  # noqa: E402
 from tools.gen_docs_model import SUPPORT_YML  # noqa: E402
 from tools.gen_docs_model import TIERS_JSON  # noqa: E402
@@ -91,6 +93,7 @@ from tools.gen_docs_sections import render_features_areas  # noqa: E402
 from tools.gen_docs_sections import render_features_task_runner  # noqa: E402
 from tools.gen_docs_sections import render_project_details  # noqa: E402
 from tools.gen_docs_sections import render_project_types  # noqa: E402
+from tools.gen_docs_sections import render_size_ledger  # noqa: E402
 from tools.gen_docs_sections import render_support_doc  # noqa: E402
 from tools.gen_docs_sections import render_support_table  # noqa: E402
 from tools.gen_docs_sections import render_tier_ledger  # noqa: E402
@@ -100,6 +103,7 @@ __all__ = [
     "ALL_TYPES",
     "BEGIN",
     "BOOL_PROSE",
+    "DEPENDENCIES_DOC",
     "END",
     "FEATURES_DOC",
     "GATE_PREFIX",
@@ -107,6 +111,7 @@ __all__ = [
     "PROMPT_STOPS",
     "QUESTIONNAIRE_DOC",
     "RUNNER_URLS",
+    "SIZE_LEDGER_JSON",
     "SUPPORT_DOC",
     "SUPPORT_YML",
     "TIERS_JSON",
@@ -136,6 +141,7 @@ __all__ = [
     "render_mermaid",
     "render_project_details",
     "render_project_types",
+    "render_size_ledger",
     "render_support_doc",
     "render_support_table",
     "render_tier_ledger",

@@ -29,6 +29,12 @@ FEATURES_DOC = TOP / "docs" / "reference" / "features.md"
 SUPPORT_DOC = support_ledger.SUPPORT_DOC
 SUPPORT_YML = support_ledger.SUPPORT_YML
 
+SIZE_LEDGER_JSON = TOP / "tests" / "matrix" / "sizes.json"
+"""The generated-size ledger (tests/test_generated_sizes.py owns enforcing it)."""
+
+DEPENDENCIES_DOC = TOP / "docs" / "reference" / "dependencies.md"
+"""The page whose size table carries the ledger's numbers."""
+
 TIERS_JSON = TOP / "tests" / "matrix" / "tiers.json"
 """The cost ledger (tests/test_marker_drift.py owns enforcing it)."""
 

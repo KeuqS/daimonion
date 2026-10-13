@@ -25,6 +25,7 @@ if str(TOP) not in sys.path:
 
 from tools import support_ledger  # noqa: E402
 from tools.gen_docs_graph import render_mermaid  # noqa: E402
+from tools.gen_docs_model import DEPENDENCIES_DOC  # noqa: E402
 from tools.gen_docs_model import FEATURES_DOC  # noqa: E402
 from tools.gen_docs_model import QUESTIONNAIRE_DOC  # noqa: E402
 from tools.gen_docs_model import SUPPORT_DOC  # noqa: E402
@@ -38,6 +39,7 @@ from tools.gen_docs_sections import render_features_areas  # noqa: E402
 from tools.gen_docs_sections import render_features_task_runner  # noqa: E402
 from tools.gen_docs_sections import render_project_details  # noqa: E402
 from tools.gen_docs_sections import render_project_types  # noqa: E402
+from tools.gen_docs_sections import render_size_ledger  # noqa: E402
 from tools.gen_docs_sections import render_support_doc  # noqa: E402
 from tools.gen_docs_sections import render_support_table  # noqa: E402
 from tools.gen_docs_sections import render_tier_ledger  # noqa: E402
@@ -86,7 +88,9 @@ def generated_blocks(support: Path = SUPPORT_YML) -> list[GeneratedBlock]:
     `support.yml` exists: W4 owns that file, and its blocks (the catalogue's
     summary and the full `docs/reference/support.md` reference) appear with it.
     The tier-ledger block (docs/explanations/verification.md) is generated
-    from the cost ledger, not the questionnaire (TODO.md §28.6-D4).
+    from the cost ledger, not the questionnaire (TODO.md §28.6-D4), and the
+    generated-size block (docs/reference/dependencies.md) from the measured
+    size ledger `tests/matrix/sizes.json`.
     """
     blocks = [
         GeneratedBlock(QUESTIONNAIRE_DOC, "project-types", render_project_types),
@@ -96,6 +100,7 @@ def generated_blocks(support: Path = SUPPORT_YML) -> list[GeneratedBlock]:
         GeneratedBlock(FEATURES_DOC, "features-areas", render_features_areas),
         GeneratedBlock(FEATURES_DOC, "features-mermaid", _mermaid_block),
         GeneratedBlock(FEATURES_DOC, "features-task-runner", render_features_task_runner),
+        GeneratedBlock(DEPENDENCIES_DOC, "generated-size", render_size_ledger),
         GeneratedBlock(VERIFICATION_DOC, "tier-ledger", render_tier_ledger),
     ]
     if support.is_file():

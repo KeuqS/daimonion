@@ -45,6 +45,33 @@ new type):
 | agent scaffold (`use_recommended_agent=No`, `library`/`cli`) | `pydantic-ai`, `pydantic-settings` |
 | `sphinx` docs | dev: `pydata-sphinx-theme`, `myst-parser`, `sphinx-autobuild`, `sphinx-copybutton`, `sphinx-design` |
 
+## Generated size (`tools/gen_docs.py --write`)
+
+How big each rendered project is (files, text lines, runtime deps), measured
+from real renders. A template change that grows or shrinks a family must
+re-measure `tests/matrix/sizes.json` and rewrite this table; `--check` fails
+in between.
+
+<!-- BEGIN GENERATED: generated-size (tools/gen_docs.py --write) -->
+| Row | Files | Lines | Runtime deps |
+|---|---|---|---|
+| `preset:bare` | 35 | 2454 | 1 |
+| `preset:bot` | 55 | 3337 | 2 |
+| `preset:cli` | 52 | 3076 | 1 |
+| `preset:data-science` | 87 | 5120 | 4 |
+| `preset:library` | 52 | 2907 | 1 |
+| `preset:mcp-server` | 56 | 3479 | 2 |
+| `preset:micropython` | 56 | 3228 | 0 |
+| `preset:online-judge-atcoder` | 47 | 2840 | 0 |
+| `preset:online-judge-codeforces` | 47 | 2834 | 0 |
+| `preset:online-judge-kattis` | 47 | 2835 | 0 |
+| `preset:ros2` | 51 | 2217 | 1 |
+| `preset:web-api` | 66 | 3649 | 10 |
+| `project_type=script` | 52 | 2822 | 1 |
+| `row:oj_ctf` | 52 | 2749 | 1 |
+| `row:oj_kaggle` | 68 | 3275 | 17 |
+<!-- END GENERATED: generated-size -->
+
 ## Dev / experiment groups
 
 - `web_api` / `include_mcp` dev add `anyio` (in-process client test); the
