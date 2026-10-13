@@ -944,6 +944,7 @@ def test_pixi_setup_step_installs_cli_only(tmp_path: Path):
         "setup-pixi must set run-install: false so CI works without a standalone pixi.toml"
     )
 
+
 def test_readme_hides_type_check_below_recommended_strictness(tmp_path: Path):
     """At none/basic strictness the runner table must not list `type-check`
     (the task does not exist there); recommended keeps it."""
