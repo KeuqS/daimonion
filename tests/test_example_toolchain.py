@@ -104,6 +104,15 @@ def test_template_poetry(tmp_path: Path):
     # version for poetry projects
     assert pyproject_toml["project"]["version"] == "0.1.0"
     assert "version" not in pyproject_toml["project"].get("dynamic", [])
+    # Poetry 2.x auto-discovery misses a src/ package renamed by the
+    # questionnaire, so the package is listed explicitly.
+    packages = pyproject_toml["tool"]["poetry"]["packages"]
+    assert packages == [{"include": "daimonion_example", "from": "src"}]
+    # The poetry env never gets a setuptools-scm _version.py: the import
+    # falls back to the installed distribution's metadata version.
+    init = (tmp_path / "src" / "daimonion_example" / "__init__.py").read_text()
+    assert "from ._version import __version__" in init
+    assert "from importlib.metadata import version" in init
     readme = (tmp_path / "README.md").read_text()
     # only the uv-tested matrix gets the full "3.11 | 3.12 | 3.13 | 3.14" range
     assert "Python-3.11-3776AB" in readme

@@ -51,18 +51,14 @@ def test_template_with_extra_code_and_api_docs(tmp_path: Path):
     # add some code
     init = tmp_path / "src" / "daimonion_example" / "__init__.py"
     init.write_text(
-        init.read_text().replace(
-            'from ._version import __version__\n\n__all__ = ["__version__"]',
-            '''from daimonion_example import extra_pkg
-
-from ._version import __version__
-
-
-class TopCls:
-    """A top level class."""
-
-
-__all__ = ["TopCls", "__version__", "extra_pkg"]''',
+        init.read_text()
+        .replace(
+            "__version__: str\ntry:",
+            "from daimonion_example import extra_pkg\n\n__version__: str\ntry:",
+        )
+        .replace(
+            'version("ConstitutiveTemplates-daimonion-example")\n\n__all__ = ["__version__"]',
+            'version("ConstitutiveTemplates-daimonion-example")\n\n\nclass TopCls:\n    """A top level class."""\n\n\n__all__ = ["TopCls", "__version__", "extra_pkg"]',
         )
     )
     extra_pkg = tmp_path / "src" / "daimonion_example" / "extra_pkg"

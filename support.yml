@@ -69,7 +69,7 @@ best_effort:
     why: "measured: only lint/test/check execute (test_task_runners.py::test_lint_task_executes for all four, ::test_test_task_executes_on_make, ::test_check_task_executes_on_poe); fix/type-check/audit/license-check/docs/docs-serve are render-only on these runners, and no witness leaf selects one"
   - combination: "package_manager = poetry"
     tier: best_effort
-    why: "install/run zero: every witness leaf renders uv and tools/batch.py never sees a poetry.lock, so tests/test_example_toolchain.py::test_template_poetry asserts the rendered pyproject only"
+    why: "no witness leaf selects it (every leaf renders uv), but the weekly poetry-render-test job proves install/run: a poetry render ships an explicit [tool.poetry] packages table plus an importlib.metadata _version fallback, so `poetry install` + the generated pytest pass; tests/test_example_toolchain.py::test_template_poetry pins both"
   - combination: "log_library = loguru | picologging"
     tier: best_effort
     why: "structlog is the default and the full sample exercises only it; loguru/picologging execute solely in the network-marked test_example_toolchain cases (::test_template_log_library_loguru / ::test_template_log_library_picologging)"

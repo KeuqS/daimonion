@@ -293,6 +293,15 @@ suppress-none-returning = false
 {% endif %}{% if is_poetry %}
 [tool.poetry]
 # Poetry reads the PEP 621 [project] table and [dependency-groups] above.
-# packages are auto-detected from the project layout.
-[tool.poetry.group.dev.dependencies]
+# The installable package is listed explicitly: Poetry 2.x auto-discovery
+# matches the package directory against the distribution name, so it misses
+# a src/ package the questionnaire renamed (distribution vs package_name).
+{% if no_pkg %}# No installable package here (firmware / code-submission workspace):
+# manage dependencies only, never `poetry build`.
+package-mode = false
+{% elif web_api %}packages = [{ include = "app" }]
+{% elif kaggle %}packages = [{ include = "utils", from = "src" }]
+{% elif use_src_layout %}packages = [{ include = "{{ package_name }}", from = "src" }]
+{% else %}packages = [{ include = "{{ package_name }}" }]
+{% endif %}[tool.poetry.group.dev.dependencies]
 {% endif -%}
