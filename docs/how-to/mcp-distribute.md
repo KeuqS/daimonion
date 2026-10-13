@@ -6,8 +6,8 @@ package strangers can run with `uvx` and register with any MCP host.
 
 This page is about **packaging and distribution**. Building the server
 itself (tools, resources, prompts, transports) is covered in
-[MCP server scaffolding](mcp.md); production HTTP operation (TLS, auth,
-multi-worker) lives in that page's *Serving over HTTP* section.
+[MCP server scaffolding](mcp.md); production HTTP operation (compose,
+replicas, auth) is [Running an MCP Server in Production](mcp-production.md).
 
 ## What the scaffold already gives you
 

@@ -29,6 +29,7 @@ Practical step-by-step guides for the more experienced user.
 - [The Data-Science Layout](how-to/data-science.md)
 - [MCP Server Scaffolding](how-to/mcp.md)
 - [Distributing an MCP Server](how-to/mcp-distribute.md)
+- [Running an MCP Server in Production](how-to/mcp-production.md)
 - [Chat Bot Scaffolding (Discord / Slack / LINE / Gmail)](how-to/bot.md)
 - [Ethics and Regional Rule Sections](how-to/ethics-section.md)
 - [Polite Web Fetching](how-to/scraping.md)

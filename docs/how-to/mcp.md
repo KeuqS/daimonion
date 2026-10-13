@@ -5,7 +5,6 @@ Context Protocol) server onto a `cli` or `web_api` project. Answering **No**
 to `use_recommended_integrations` and **Yes** to `include_mcp` adds the `mcp`
 SDK (with its CLI), generates an `mcp_server.py` with typed example tools,
 and ships an in-process client test.
-
 An MCP server is a **long-running process** — it does not fit the
 "print and exit" CLI model. See
 [the layer model](../explanations/long-running.md) for why it is a module on
@@ -13,7 +12,9 @@ top of a normal `cli` / `web_api` project rather than its own project type.
 
 This page has two audiences: **developers** building an MCP server (from the
 scaffold or their own) and **users / operators** adding MCP servers to a
-host. The security sections are split accordingly.
+host. The security sections are split accordingly. Serving the HTTP
+transport past local debugging — compose, replicas, auth — is
+[Running an MCP Server in Production](mcp-production.md).
 
 ## What gets generated
 

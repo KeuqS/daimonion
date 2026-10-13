@@ -231,6 +231,17 @@ Colaboratory / AWS Lambda 等がある。スライスごとの衝突を棚卸し
   ドキュメントで明示するだけに留めるか、質問（`deploy_target` 等）を足して
   Lambda 向けハンドラ/project 設定を生成するか、を設計監査として判断。
   Leaf 空間を広げるなら witness 再生成（272 葉基準）が必要。
+  **判断（2026-10-13 確定）: docs-only を維持、`deploy_target` 質問は
+  設けない。** 根拠: (a) 設計原則「実行環境が同じで AI 規約も同じなら
+  project_type/質問を増やさない」— Lambda はデプロイ形態差であって別の
+  実行環境・規約の第一級軸ではない（同じ ASGI プロセスモデルの
+  adapter 問題）。(b) `deploy_target` 追加は葉次元 +1 = witness 全再記録
+  で、得られるのは Mangum 等 adapter ファイル 1 枚の生成のみ —
+  対価が合わない。(c) 実需要が観測されていない（本 TODO 自身が
+  「利用者価値をまだ測れていない前提」と分類）。再検討トリガー:
+  generated web_api を Lambda で運用した実例報告が 2 件以上集まるか、
+  serverless が「規約の軸」（例: AWS 固有のコンプライアンス要件）として
+  顕在化した場合。
 - 着手はこのTODOの番号（§35）を参照。まず `data_science` の notebook が
   Colab で開けるか（依存インストール経路）と、`web_api` cloud_provider=aws
   の Lambda 適合を各1回実レンダで確認するのが最初のステップ。
@@ -508,7 +519,15 @@ CONTRIBUTING.md は 45 行で装置が載らない。フォーク関係がハイ
       ✅ 2026-10-06 に実施（PR #22 + codex/law-map 側の README / CONTRIBUTING 更新）。
       codex を記事の Source of Truth、law-map を法務 RFC の窓口とし、daimonion は
       「wiring（どのプロジェクトにどう配るか）」のみに専念する形をドキュメント化。
-- [ ] **copier upstream への貢献を信頼獲得の経路に**(パッチ 4 本 + discussion 草案 2 本は push 済み。PR/Discussion の投稿は upstream AI_POLICY により人間作業): F1–F7 パッチの upstream 化
+- [ ] **copier upstream への貢献を信頼獲得の経路に**(パッチ 4 本 + discussion 草案 2 本は push 済み。PR/Discussion の投稿は upstream AI_POLICY により人間作業): F1–F7 パッチの upstream 化。
+  **現状（2026-10-13）**: 投稿は引き続き人間のみ（copier AI_POLICY は
+  「Autonomous agents must not be used to create or submit contributions」
+  と明言し、PR 本文は人の言葉が必須）。技術的準備は全て完了:
+  4 ブランチ（`f3-missing-batch`/`f5-stale-tag-warning`/`f6-trust-discoverability`/
+  `f7-pretend-summary`）は `kasi-x/copier` に pushed、草稿 14 件は
+  `kasi-x/daimonion-internal/notes/upstream-drafts/` へ移設済み、
+  patch-rot job は 4/4 の v9.18.1 適用を週次検証中。残作業は人間の文章
+  による投稿とレビュー対応のみ
 
 ## §43 再評価: 現行設計の妥当性と見直し条件（2026-10-11）
 
