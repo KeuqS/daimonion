@@ -512,6 +512,8 @@
       
         
       
+        
+      
     
     
     
@@ -1105,6 +1107,33 @@
     
   
   MCP Server
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/mcp-distribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Distribute an MCP Server
 
     
   </span>
@@ -2535,6 +2564,11 @@ verdicts live in <code>TODO.md</code> next to the decision.</p>
   official SDK docs. Basis for the "no MCP-specific Docker recipe" position
   in the <a href="../../how-to/mcp/">MCP how-to</a>: process management and auth stay
   outside the scaffold.</li>
+<li><a href="https://github.com/modelcontextprotocol/servers">modelcontextprotocol/servers</a> —
+  the official reference implementations (educational, not production-ready).
+  Basis for the <a href="../../how-to/mcp-distribute/">distribution recipe</a>: the
+  <code>everything</code> shape reference, the <code>filesystem</code> access-control pattern, and
+  the <code>uvx mcp-server-&lt;name&gt;</code> + registry publication model.</li>
 <li><a href="https://modelcontextprotocol.io">Model Context Protocol</a> — the spec
   itself. Referenced for transport status (SSE deprecated → streamable-http)
   and <code>TransportSecuritySettings</code> semantics.</li>

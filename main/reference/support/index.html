@@ -508,6 +508,8 @@
       
         
       
+        
+      
     
     
     
@@ -1101,6 +1103,33 @@
     
   
   MCP Server
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/mcp-distribute/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Distribute an MCP Server
 
     
   </span>
@@ -2563,7 +2592,7 @@ regression that only breaks install or run is not caught there.</p>
 <tr>
 <td><code>package_manager = poetry</code></td>
 <td><code>best_effort</code></td>
-<td>install/run zero: every witness leaf renders uv and tools/batch.py never sees a poetry.lock, so tests/test_example_toolchain.py::test_template_poetry asserts the rendered pyproject only</td>
+<td>no witness leaf selects it (every leaf renders uv), but the weekly poetry-render-test job proves install/run: a poetry render ships an explicit [tool.poetry] packages table plus an importlib.metadata _version fallback, so <code>poetry install</code> + the generated pytest pass; tests/test_example_toolchain.py::test_template_poetry pins both</td>
 </tr>
 <tr>
 <td><code>log_library = loguru \| picologging</code></td>
