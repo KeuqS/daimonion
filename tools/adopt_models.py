@@ -12,6 +12,11 @@ This is a drivers-layer module by the tests/test_tool_layers.py table: it
 touches no tree and runs no subprocess; it only names what a run is.
 """
 
+# WHYNOT: this module is the bottom of the adopt split; its records and
+# private helpers exist for leaf siblings, so a local "unused" verdict
+# is a false positive (uses resolve via the facade or other leaves).
+# pyright: reportPrivateUsage=false, reportUnusedClass=false
+
 from __future__ import annotations
 
 import sys

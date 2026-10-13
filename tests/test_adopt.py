@@ -370,8 +370,8 @@ def test_plan_and_report_share_one_merge_summary(tmp_path: Path):
     result = adopt.adopt(project, ref="HEAD", dry_run=True)
 
     plan = {"dependencies": result.deps, "tool_config": result.tool_config, "files": result.files_merged}
-    summary = adopt._merge_summary(result)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    assert summary == adopt._merge_summary_from(plan)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    summary = adopt._merge_summary(result)  # noqa: SLF001
+    assert summary == adopt._merge_summary_from(plan)  # noqa: SLF001
     assert summary, "the fixture has something to merge; an empty summary makes the equality vacuous"
 
 

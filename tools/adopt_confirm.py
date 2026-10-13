@@ -11,6 +11,11 @@ This is a drivers-layer module by the tests/test_tool_layers.py table: it
 prompts through the caller and merges into the real target tree.
 """
 
+# WHYNOT: leaf sibling of the adopt split; the private names below are
+# intra-package collaborators, not encapsulated APIs (they were one
+# module before the split).
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false
+
 from __future__ import annotations
 
 import shutil

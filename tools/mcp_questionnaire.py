@@ -9,6 +9,11 @@ function it names. Filesystem only, no render, no network (validation runs
 copier's own questionnaire pass, which is still not a render).
 """
 
+# WHYNOT: the functions below are registered through @server.tool()
+# inside register_*(); their call edge is the decorator, invisible to
+# the checker.
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import sys

@@ -12,6 +12,11 @@ plus the generated project's own ruff), `list_batch_requests` / `run_batch`
 module owns only the tool shapes around them.
 """
 
+# WHYNOT: the functions below are registered through @server.tool()
+# inside register_*(); their call edge is the decorator, invisible to
+# the checker.
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import hashlib

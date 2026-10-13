@@ -14,6 +14,11 @@ This is a drivers-layer module by the tests/test_tool_layers.py table: it
 renders a fresh scaffold for comparison and consumes the merge machinery.
 """
 
+# WHYNOT: leaf sibling of the adopt split; the private names below are
+# intra-package collaborators, not encapsulated APIs (they were one
+# module before the split).
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import contextlib

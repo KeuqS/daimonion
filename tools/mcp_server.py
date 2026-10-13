@@ -250,7 +250,7 @@ def _allowed_hosts() -> TransportSecuritySettings | None:
 # directly and monkeypatch `mcp_server.TOP`). They delegate to the registered
 # implementations, which are the same function objects.
 def _tool(name: str) -> Any:
-    return server._tool_manager._tools[name].fn  # type: ignore[attr-defined]  # noqa: SLF001  -- the SDK keeps no public accessor for the registered function; the shim re-exports the same object.
+    return server._tool_manager._tools[name].fn  # type: ignore[attr-defined]  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]  -- the SDK keeps no public accessor for the registered function; the shim re-exports the same object.
 
 
 list_questions = _tool("list_questions")

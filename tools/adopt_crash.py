@@ -12,6 +12,10 @@ This is a drivers-layer module by the tests/test_tool_layers.py table: it
 watches the real target tree for writes.
 """
 
+# WHYNOT: leaf module of the adopt split; these helpers are used by leaf
+# siblings (imported private names read as unused locally).
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import contextlib

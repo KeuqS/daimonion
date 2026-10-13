@@ -11,6 +11,11 @@ resources (`template://questionnaire`, `template://witnesses`,
 `TIER_TIMEOUTS`) live with the runners that read them.
 """
 
+# WHYNOT: the functions below are registered through
+# @server.tool()/@server.resource() inside register_*(); their call edge
+# is the decorator, invisible to the checker.
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import json

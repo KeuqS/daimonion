@@ -12,6 +12,11 @@ questionnaire data in, markdown/mermaid text out -- no template tree, no
 subprocess.
 """
 
+# WHYNOT: leaf sibling of the gen_docs split; `_wrap`/`_es`/`_br`/`_clip`
+# and the prose helpers are shared with the markdown and mermaid
+# siblings, so imported private names read as unused locally.
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false
+
 from __future__ import annotations
 
 import re

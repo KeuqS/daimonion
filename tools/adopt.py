@@ -34,6 +34,10 @@ options), 3 refused (another copier template owns the project and --takeover
 was not given), 4 a previous run left its journal behind -- recover it first.
 """
 
+# WHYNOT: the names in __all__ resolve through module __getattr__ at
+# runtime; the checker cannot see them as module attributes.
+# pyright: reportUnsupportedDunderAll=false
+
 from __future__ import annotations
 
 import sys

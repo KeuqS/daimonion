@@ -9,6 +9,11 @@ Responsibility: the tools that look at a project on disk or at this checkout
 executes `adopt.adopt` inside stream isolation with error conversion.
 """
 
+# WHYNOT: the functions below are registered through @server.tool()
+# inside register_*(); their call edge is the decorator, invisible to
+# the checker.
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import sys

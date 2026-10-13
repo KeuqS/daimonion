@@ -501,7 +501,7 @@ class AdoptionMachine(RuleBasedStateMachine):
         tests/test_adopt.py; this one stays in-process because 100 sequences
         cannot afford a process.
         """
-        real_crash_at = adopt._crash_at  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        real_crash_at = adopt._crash_at  # noqa: SLF001
 
         def crash_at(hit: str) -> None:
             if hit == point:

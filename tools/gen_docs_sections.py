@@ -10,6 +10,10 @@ This is a machinery-layer module by the tests/test_tool_layers.py table:
 the `Model` in, markdown text out -- no template tree, no subprocess.
 """
 
+# WHYNOT: leaf sibling of the gen_docs split; the private names below
+# are intra-package collaborators, not encapsulated APIs.
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import json

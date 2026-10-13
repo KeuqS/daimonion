@@ -353,7 +353,9 @@ min_confidence = 60
 # pytestmark is read by pytest's module reflection, which vulture cannot see.
 # dst_path / quiet are copier Worker attributes tests/support.py rebinds per
 # replay call; copier itself reads them.
-ignore_names = ["pytestmark", "dst_path", "quiet"]
+# __getattr__ / __dir__ are the lazy facades' (tools/adopt.py, tools/gen_docs.py)
+# module-level PEP 562 hooks, called by the import system on attribute access.
+ignore_names = ["pytestmark", "dst_path", "quiet", "__getattr__", "__dir__"]
 # Entry points whose callers vulture cannot see: the MCP tools in
 # tools/mcp_server.py are invoked by MCP hosts (same idea as @app.route),
 # HTTP routes are registered by their decorator, and pytest discovers
